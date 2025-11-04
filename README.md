@@ -1,5 +1,7 @@
 # Group 18 final project
 
+This is the final project of the group #18 for the DTU course 22160 (R for Bio Data Science).
+
 ## Project Contributors
 
 |   username  | student ID |    student name    |
