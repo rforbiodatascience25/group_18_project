@@ -1,4 +1,4 @@
-# Group 18 final project
+# Group 18 Final Project
 
 This is the final project of the group #18 for the DTU course 22160 (R for Bio Data Science).
 
@@ -16,7 +16,11 @@ This is the final project of the group #18 for the DTU course 22160 (R for Bio D
 
 > CHANGE THE LINK LATER!!!!
 
-View the final presentation [here](https://raw.githack.com/r4bds/r4bds.github.io/main/lecture_lab03.html).
+**View the final presentation [here](https://raw.githack.com/r4bds/r4bds.github.io/main/lecture_lab03.html).**
+
+## Data source
+
+> describe from where we have data
 
 ## Project organisation
 
