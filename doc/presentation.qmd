@@ -1,13 +1,20 @@
 ---
-title: "03_augment"
+title: "Group 18 Final Project: R for Bio Data Science course"
 author:
   - "Kacper Maciejewski (s243548)"
   - "Sofia Russo (252054)"
   - "Aleksandra Wozniak (253713)"
   - "Gabriel Loayza (252608)"
   - "Dagmar Geevers (252256)"
-format:
-  html:
-    embed-resources: true
-editor: visual
+format: revealjs
 ---
+
+## slide 1
+
+- Turn off alarm
+- Get out of bed
+
+## slide 2
+
+- Get in bed
+- Count sheep

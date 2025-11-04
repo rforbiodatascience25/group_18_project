@@ -1,0 +1,7 @@
+# Supportive functions
+# Authors:
+#    Kacper Maciejewski (s243548)
+#    Sofia Russo (252054)
+#    Aleksandra Wozniak (253713)
+#    Gabriel Loayza (252608)
+#    Dagmar Geevers (252256)
