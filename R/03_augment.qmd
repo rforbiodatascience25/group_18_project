@@ -88,3 +88,13 @@ dat <- dat %>%
 ```{r}
 write.csv(dat, "../data/03_dat_aug.csv", row.names = FALSE)
 ```
+
+# Examine final structure
+
+```{r}
+colnames(dat)
+```
+
+```{r}
+head(dat)
+```

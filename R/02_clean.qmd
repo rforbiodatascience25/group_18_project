@@ -144,29 +144,18 @@ print(colnames(full_tbl_mmc1))
 ## Clean extra rows from the merge
 
 ```{r}
-cols_to_keep <- c(
-  "studyId",
-  "patientId",
-  "HDAC1","HDAC2","HDAC3","HDAC8",
-  "HDAC4","HDAC5","HDAC7","HDAC9",
-  "HDAC6","HDAC10",
-  "SIRT1","SIRT2","SIRT3","SIRT4","SIRT5","SIRT6","SIRT7",
-  "HDAC11",
-  "mRNAsi",
-  "GRADE",
-  "AJCC_PATHOLOGIC_TUMOR_STAGE",
-  "DFS_MONTHS",
-  "DFS_STATUS",
-  "OS_MONTHS",
-  "OS_STATUS"
-)
-
 full_tbl_mmc1 <- full_tbl_mmc1 %>%
-  select(all_of(cols_to_keep)) %>%
-  rename(
+  select(
+    Cancer = studyId,
+    patientId,
+    HDAC1, HDAC2, HDAC3, HDAC4, HDAC5,
+    HDAC6, HDAC7, HDAC8, HDAC9, HDAC10, HDAC11,
+    SIRT1, SIRT2, SIRT3, SIRT4, SIRT5, SIRT6, SIRT7,
+    mRNAsi,
+    Grade = GRADE,
     Stage = AJCC_PATHOLOGIC_TUMOR_STAGE,
-    Grade= GRADE,
-    Cancer = studyId
+    DFS_MONTHS, DFS_STATUS,
+    OS_MONTHS,  OS_STATUS
   )
 ```
 
