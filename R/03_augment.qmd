@@ -11,3 +11,80 @@ format:
     embed-resources: true
 editor: visual
 ---
+
+# Augment data
+
+## Load libraries and data from previous step
+
+```{r}
+library(tidyverse)
+
+dat <- read.csv("../data/02_dat_clean.csv")
+```
+
+## Normalize stage and grade naming scheme
+
+First, we need to know what values are there, so we print unique ones.
+
+```{r}
+# Print unique values in Grade
+unique(dat$Grade)
+
+# Print unique values in Stage
+unique(dat$Stage)
+```
+
+### Convert staging and grading
+
+```{r}
+#STAGE FUNCTION
+stage_to_num <- function(stage) {
+  dplyr::case_when(
+    stage == "STAGE 0" ~ 0,
+    stage == "STAGE IS" ~ 0,
+    stage %in% c("STAGE I", "STAGE IA", "STAGE IB") ~ 1,
+    stage %in% c("STAGE II", "STAGE IIA", "STAGE IIB", "STAGE IIC") ~ 2,
+    stage %in% c("STAGE III", "STAGE IIIA", "STAGE IIIB", "STAGE IIIC") ~ 3,
+    stage %in% c("STAGE IV", "STAGE IVA", "STAGE IVB", "STAGE IVC") ~ 4,
+    stage == "STAGE I/II (NOS)" ~ 1.5,
+    stage == "STAGE X" ~ NA,
+    TRUE ~ NA
+  )
+}
+
+#GRADE FUNCTION
+grade_to_num <- function(grade) {
+  dplyr::case_when(
+    grade == "Low Grade"  ~ 1,
+    grade == "High Grade" ~ 4,
+    grade == "G1" ~ 1,
+    grade == "G2" ~ 2,
+    grade == "G3" ~ 3,
+    grade == "G4" ~ 4,
+    grade == "GX" ~ NA,
+    TRUE ~ NA
+  )
+}
+
+# Apply the new naming scheme
+dat <- dat %>%
+  mutate(
+    Grade_num = grade_to_num(Grade),
+    Stage_num = stage_to_num(Stage)
+  )
+```
+
+## Normalize study names
+
+```{r}
+dat <- dat %>%
+  mutate(
+    Cancer = toupper(substr(Cancer, 1, 4))
+  )
+```
+
+## Write augmented data
+
+```{r}
+write.csv(dat, "../data/03_dat_aug.csv", row.names = FALSE)
+```

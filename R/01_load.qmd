@@ -11,3 +11,122 @@ format:
     embed-resources: true
 editor: visual
 ---
+
+# Get cancer stemness indexes from the article supplement
+
+We would like to use pre-computed stemness indexes (mostly mRNAsi) from the [Malta et al.](https://www.cell.com/cell/fulltext/S0092-8674(18)30358-1?_returnURL=https%3A%2F%2Flinkinghub.elsevier.com%2Fretrieve%2Fpii%2FS0092867418303581%3Fshowall%3Dtrue) study. As direct curl download is forbidden from the Cell website, the easiest will be that you download the CSV on your own in the browser using the link below.
+
+```         
+https://www.cell.com/cms/10.1016/j.cell.2018.03.034/attachment/37f8d8d0-af00-404b-9bce-2d7d1d6a1a0d/mmc1.xlsx
+```
+
+Save the file under `/_raw/mmc1.xlsx` in the project directory.
+
+# Get expression and clinical data from [cBioPortal](https://docs.cbioportal.org/web-api-and-clients/#r-clients)
+
+We will aim to get exactly the same data as analyzed in [this](https://pubmed.ncbi.nlm.nih.gov/39063083/) article.
+
+## Install and load libraries
+
+```{r}
+#| include: false
+
+BiocManager::install("cBioPortalData")
+library(cBioPortalData)
+library(tidyverse)
+```
+
+## Examine available studies
+
+```{r}
+#| warning: false
+
+cbio <- cBioPortal()
+print(getStudies(cbio)$studyId)
+```
+
+## Define genes and studies
+
+```{r}
+#| warning: false
+
+cbio <- cBioPortal()
+
+genes <- c(
+  "HDAC1","HDAC2","HDAC3","HDAC8",
+  "HDAC4","HDAC5","HDAC7","HDAC9",
+  "HDAC6","HDAC10",
+  "SIRT1","SIRT2","SIRT3","SIRT4","SIRT5","SIRT6","SIRT7",
+  "HDAC11"
+)
+
+studies <- c(
+  "blca_tcga_pan_can_atlas_2018",
+  "brca_tcga_pan_can_atlas_2018",
+  "cesc_tcga_pan_can_atlas_2018",
+  "coadread_tcga_pan_can_atlas_2018",
+  "esca_tcga_pan_can_atlas_2018",
+  "gbm_tcga_pan_can_atlas_2018",
+  "hnsc_tcga_pan_can_atlas_2018",
+  "kirc_tcga_pan_can_atlas_2018",
+  "kirp_tcga_pan_can_atlas_2018",
+  "lgg_tcga_pan_can_atlas_2018",
+  "lihc_tcga_pan_can_atlas_2018",
+  "luad_tcga_pan_can_atlas_2018",
+  "lusc_tcga_pan_can_atlas_2018",
+  "ov_tcga_pan_can_atlas_2018",
+  "paad_tcga_pan_can_atlas_2018",
+  "prad_tcga_pan_can_atlas_2018",
+  "sarc_tcga_pan_can_atlas_2018",
+  "skcm_tcga_pan_can_atlas_2018",
+  "stad_tcga_pan_can_atlas_2018",
+  "tgct_tcga_pan_can_atlas_2018",
+  "thca_tcga_pan_can_atlas_2018",
+  "ucec_tcga_pan_can_atlas_2018"
+)
+```
+
+## Define backbone for fetching
+
+```{r}
+
+study_tbl <- tibble(
+  studyId   = studies,
+  profileId = paste0(studies, "_rna_seq_v2_mrna")
+)
+```
+
+## Fetch expression data
+
+```{r}
+#| warning: false
+#| include: false
+
+study_tbl %>%
+  mutate(
+    expr = map2(studyId, profileId, ~ {
+      getDataByGenes(
+        api = cbio,
+        studyId = .x,
+        genes = genes,
+        molecularProfileIds = .y,
+        by = "hugoGeneSymbol"
+      )[[1]] %>% select(patientId, hugoGeneSymbol, value)
+    }),
+    file = paste0("../_raw", "/expr_", studyId, ".csv"),
+    written = map2(expr, file, write_csv)
+  ) %>% 
+  invisible()
+```
+
+## Fetch clinical data
+
+```{r}
+study_tbl %>%
+  mutate(
+    clin = map(studyId, ~ clinicalData(cbio, .x)),
+    file = paste0("../_raw", "/clinical_", studyId, ".csv"),
+    written = map2(clin, file, write_csv)
+  ) %>% 
+invisible()
+```

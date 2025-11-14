@@ -11,3 +11,167 @@ format:
     embed-resources: true
 editor: visual
 ---
+
+# Mege expression data with clinical features
+
+## Load libraries
+
+```{r}
+#| INCLUDE: false
+library(tidyverse)
+```
+
+## List all downloaded files
+
+```{r}
+
+files <- tibble(
+  path = list.files("../_raw", pattern = "*.csv", full.names = TRUE),
+  name = basename(path),
+  type = case_when(
+    str_starts(name, "expr_") ~ "expr",
+    str_starts(name, "clinical_") ~ "clin",
+    TRUE ~ NA_character_
+  ),
+  studyId = name %>%
+    str_remove("^expr_") %>%
+    str_remove("^clinical_") %>%
+    str_remove("\\.csv$")
+)
+
+expr_tbl <- files %>% filter(type == "expr")
+clin_tbl <- files %>% filter(type == "clin")
+```
+
+## Read, pivot wide, deduplicate, join
+
+As we would like to have one entry per patient (as there is in clinical data) and expression data may contain the sequencing for many sample slices from the very patient, we will deduplicate expression entries by averaging the expressions across all slices.
+
+```{r}
+merged_tbl <- expr_tbl %>%
+  left_join(clin_tbl, by = "studyId", suffix = c("_expr", "_clin")) %>%
+  mutate(
+
+
+    # Read expression data with deduplication
+    expr = map(path_expr, ~ read_csv(.x, show_col_types = FALSE) %>%
+                 group_by(patientId, hugoGeneSymbol) %>%
+                 summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+                 pivot_wider(
+                   names_from = hugoGeneSymbol,
+                   values_from = value
+                 )),
+
+    # Read clinical data
+    clin = map(path_clin, ~ read_csv(.x, show_col_types = FALSE) %>%
+                 mutate(across(everything(), as.character))),
+
+    merged = map2(expr, clin, ~ left_join(.x, .y,
+                                          by = "patientId",
+                                          relationship = "many-to-many"))
+  )
+```
+
+## Unnest the dataframe
+
+```{r}
+full_tbl <- merged_tbl %>%
+  select(studyId, merged) %>%
+  unnest(merged)
+```
+
+# Merge stemness indexes
+
+## Load libraries
+
+```{r}
+#| message: false
+library(readxl)
+```
+
+## Load stemness data
+
+Make sure you downloaded it manually before.
+
+```{r}
+#| message: false
+
+mmc1_path <- file.path("../_raw", "mmc1.xlsx")
+
+# replace "Table S1" with the actual sheet name if different
+mmc1 <- read_xlsx(mmc1_path, sheet = "StemnessScores_RNAexp")
+```
+
+## Merge stemness data with expression and clinical features
+
+`TCGAlong.id` from the `mmc1.xlsx` is in the long format e.g. *TCGA-04-1348-01A-01R-1565-13*, specyfing the exact expression-based patient slice.
+
+We want only the first 12 characters (e.g. *TCGA-PG-A917*) as these are master and unique patient IDs in the TCGA.
+
+In the case of duplicates, as previosuly, we will average the stemness value for those.
+
+```{r}
+#| message: false
+
+# clean the patient field
+mmc1_clean <- mmc1 %>%
+  mutate(
+    patientId = substr(TCGAlong.id, 1, 12)
+  ) %>%
+  group_by(patientId) %>%
+  summarise(
+    across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+full_tbl_mmc1 <- full_tbl %>%
+  left_join(mmc1_clean, by = "patientId")
+```
+
+# Sanity check
+
+## Number of samples and column names
+
+```{r}
+n_samples <- full_tbl_mmc1 %>%
+  distinct(patientId) %>%
+  nrow()
+
+print(n_samples)
+print(colnames(full_tbl_mmc1))
+```
+
+## Clean extra rows from the merge
+
+```{r}
+cols_to_keep <- c(
+  "studyId",
+  "patientId",
+  "HDAC1","HDAC2","HDAC3","HDAC8",
+  "HDAC4","HDAC5","HDAC7","HDAC9",
+  "HDAC6","HDAC10",
+  "SIRT1","SIRT2","SIRT3","SIRT4","SIRT5","SIRT6","SIRT7",
+  "HDAC11",
+  "mRNAsi",
+  "GRADE",
+  "AJCC_PATHOLOGIC_TUMOR_STAGE",
+  "DFS_MONTHS",
+  "DFS_STATUS",
+  "OS_MONTHS",
+  "OS_STATUS"
+)
+
+full_tbl_mmc1 <- full_tbl_mmc1 %>%
+  select(all_of(cols_to_keep)) %>%
+  rename(
+    Stage = AJCC_PATHOLOGIC_TUMOR_STAGE,
+    Grade= GRADE,
+    Cancer = studyId
+  )
+```
+
+## Save final CSV file
+
+```{r}
+write_csv(full_tbl_mmc1, "../data/02_dat_clean.csv")
+```
