@@ -14,7 +14,11 @@ editor: visual
 
 # Get cancer stemness indexes from the article supplement
 
-We would like to use pre-computed stemness indexes (mostly mRNAsi) from the [Malta et al.](https://www.cell.com/cell/fulltext/S0092-8674(18)30358-1?_returnURL=https%3A%2F%2Flinkinghub.elsevier.com%2Fretrieve%2Fpii%2FS0092867418303581%3Fshowall%3Dtrue) study. As direct curl download is forbidden from the Cell website, the easiest will be that you download the CSV on your own in the browser using the link below.
+We would like to use pre-computed stemness indexes (mostly mRNAsi) from the [Malta et al.](https://www.cell.com/cell/fulltext/S0092-8674(18)30358-1?_returnURL=https%3A%2F%2Flinkinghub.elsevier.com%2Fretrieve%2Fpii%2FS0092867418303581%3Fshowall%3Dtrue) study.
+
+> Table S1: Stemness Indices Derived for All PanCancer 33 TCGA Cohort, Related to Figure 1
+
+As direct curl download is forbidden from the Cell website, the easiest will be that you download the CSV on your own in the browser using the link below.
 
 ```         
 https://www.cell.com/cms/10.1016/j.cell.2018.03.034/attachment/37f8d8d0-af00-404b-9bce-2d7d1d6a1a0d/mmc1.xlsx
