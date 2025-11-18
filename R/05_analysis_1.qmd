@@ -11,3 +11,272 @@ format:
     embed-resources: true
 editor: visual
 ---
+
+## Load the data
+
+```{r}
+
+library(tidyverse)
+library(pheatmap)
+library(tidyr)
+library(broom)
+library(grid)
+
+my_data <- read_csv("../data/02_dat_clean.csv")
+view(my_data)
+```
+
+## Checking the data
+
+Grade is a microscopic assessment of the appearance of cancer cells, indicating how different they are from the normal cells.
+
+-   low grade- the cells are similar to healthy ones. The tumor is usually less agressive
+
+-   high grade- the cells are poorly differentiated or undifferentiated. The tumor is usually more agressive
+
+```{r}
+print(unique(my_data$Grade))
+#now we are replacing text with numbers
+changed_data <- my_data %>% 
+  mutate(
+    Grade_in_numbers = case_when(
+#group 1: low malignacy
+      Grade == "G1" ~ 1,
+      Grade == "Low Grade" ~ 1,
+#group 2: medium malignacy
+      Grade == "G2" ~ 2,
+#group 3: high malignacy
+      Grade == "G3" ~ 3,
+      Grade == "High Grade" ~ 3,
+#group 4: the highest malignacy
+      Grade == "G4" ~ 4,
+      TRUE ~ NA_real_
+    )
+  ) %>% 
+  drop_na(Grade_in_numbers)
+print(changed_data$Grade_in_numbers)
+```
+
+## Correlation
+
+We want to see how the activity of gene x in patients with cancer y correlates with increasing malignancy
+
+For that we are using Spearman correlation, because it is resistant for asymmetry and it looks at ranks
+
+```{r}
+
+changed_data$Cancer <- dplyr::recode(changed_data$Cancer,
+  "blca_tcga_pan_can_atlas_2018"    = "BLCA",
+  "brca_tcga_pan_can_atlas_2018"    = "BRCA",
+  "cesc_tcga_pan_can_atlas_2018"    = "CESC",
+  "coadread_tcga_pan_can_atlas_2018"= "COAD",
+  "esca_tcga_pan_can_atlas_2018"    = "ESCA",
+  "gbm_tcga_pan_can_atlas_2018"     = "GBM",
+  "hnsc_tcga_pan_can_atlas_2018"    = "HNSC",
+  "kirc_tcga_pan_can_atlas_2018"    = "KIRC",
+  "kirp_tcga_pan_can_atlas_2018"    = "KIRP",
+  "lgg_tcga_pan_can_atlas_2018"     = "LGG",
+  "lihc_tcga_pan_can_atlas_2018"    = "LIHC",
+  "luad_tcga_pan_can_atlas_2018"    = "LUAD",
+  "lusc_tcga_pan_can_atlas_2018"    = "LUSC",
+  "ov_tcga_pan_can_atlas_2018"      = "OV",
+  "paad_tcga_pan_can_atlas_2018"    = "PAAD",
+  "prad_tcga_pan_can_atlas_2018"    = "PRAD",
+  "sarc_tcga_pan_can_atlas_2018"    = "SARC",
+  "skcm_tcga_pan_can_atlas_2018"    = "SKCM",
+  "stad_tcga_pan_can_atlas_2018"    = "STAD",
+  "tgct_tcga_pan_can_atlas_2018"    = "TGCT",
+  "thca_tcga_pan_can_atlas_2018"    = "THCA",
+  "ucec_tcga_pan_can_atlas_2018"    = "UCEC"
+)
+
+  
+cancer_order <- c(
+  "LIHC", "UCEC", "KIRC", "LGG",
+  "OV", "PAAD",
+  "HNSC", "ESCA", "CESC", "STAD",
+  "COAD", "BLCA"
+)
+cancers_use <- intersect(cancer_order, unique(changed_data$Cancer))
+
+changed_data <- changed_data %>%
+  filter(Cancer %in% cancers_use)
+
+changed_data$Cancer <- factor(changed_data$Cancer,
+                              levels = cancers_use)
+
+#here i define genes in the order for the graph
+genes_to_test <- c(
+#class I
+  "HDAC3", "HDAC2", "HDAC1", "HDAC8",
+#class IIA
+  "HDAC7", "HDAC9", "HDAC5", "HDAC4",
+#class III
+  "SIRT1", "SIRT7", "SIRT6", "SIRT4", "SIRT3", "SIRT2", "SIRT5",
+#class IIB
+  "HDAC6", "HDAC10",
+#class IV
+  "HDAC11")
+
+
+#correlation for each pair
+#pivot_longer- from wide to long
+s_correlation <- changed_data %>% 
+  pivot_longer(
+    cols = any_of(genes_to_test),
+    names_to = "gene",
+    values_to = "expression"
+  ) %>% 
+  #group for each pair (gene + cancer)
+group_by(Cancer, gene) %>% 
+summarize(
+    summary_test = broom::tidy(cor.test(expression, Grade_in_numbers, method ="spearman", exact = FALSE)), .groups = "drop"
+  ) %>% 
+  unnest(summary_test) %>% 
+  select(Cancer, gene, rho = estimate, p.value)
+
+```
+
+## Matrix_rho
+
+heatmap requires data in matrix format
+
+```{r}
+matrix_rho <- s_correlation %>% 
+  select(gene, Cancer, rho) %>% 
+  pivot_wider(
+    names_from = Cancer,
+    values_from = rho
+  ) %>% 
+  column_to_rownames("gene") %>% 
+  as.matrix()
+```
+
+## Matrix_p
+
+```{r}
+matrix_p <- s_correlation %>% 
+  select(gene, Cancer, p.value) %>% 
+  pivot_wider(
+    names_from = Cancer,
+    values_from = p.value
+  ) %>% 
+  column_to_rownames("gene") %>% 
+  as.matrix()
+
+#filtering and sorting- without that R will sort the genes by alphabet 
+final_genes <- genes_to_test[genes_to_test %in% rownames(matrix_rho)]
+final_cancers <- cancers_use[cancers_use %in% colnames(matrix_rho)]
+
+#sorted versions
+matrix_rho <- matrix_rho[final_genes, final_cancers, drop = FALSE]
+matrix_p   <- matrix_p[final_genes, final_cancers, drop = FALSE]
+
+matrix_rho_plot <- matrix_rho
+matrix_rho_plot[is.na(matrix_rho_plot)] <- 0
+```
+
+## Pheatmap
+
+From the correlation:
+
+-   Positive numbers - the more malignant the cancer, the more active the gene (red)
+
+-   Negative numbers - when the cancer is more malignant, the gene is less active (blue)
+
+-   Numbers close to 0 - no correlation
+
+-   Matrix_p says how random are the results. On a graph a dot means that the value is small, so the result is certain
+
+```{r}
+#adnotations-> annot_row creates a legend, assignment to classes
+gene_classes <- c(
+  HDAC3="class I",
+  HDAC2="class I",
+  HDAC1="class I",
+  HDAC8="class I",
+
+  HDAC7="class IIA",
+  HDAC9="class IIA",
+  HDAC5="class IIA",
+  HDAC4="class IIA",
+  
+  SIRT1="class III",
+  SIRT7="class III",
+  SIRT6="class III",
+  SIRT4="class III",
+  SIRT3="class III",
+  SIRT2="class III",
+  SIRT5="class III",
+  
+  HDAC6="class IIB",
+  HDAC10="class IIB",
+
+  HDAC11="class IV"
+)
+#data frame for heat map
+annot_row <- data.frame(
+  HDAC_family = as.character(gene_classes[final_genes]),
+  row.names = final_genes,
+  stringsAsFactors = FALSE)
+
+annot_row$HDAC_family <- factor(
+  annot_row$HDAC_family,
+  levels = c("class I", "class IIA", "class IIB", "class III", "class IV")
+)
+#defining colors for each class: red, blue, green, purple, orange
+ann_colors = list(
+  HDAC_family = c(
+    "class I" = "salmon",   
+    "class IIA" = "#E69F52", 
+    "class IIB" = "#BDB600", 
+    "class III" = "#009E60", 
+    "class IV" = "#008ECE"))
+    
+#BH correction for many tests- reduces fake positives 
+matrix_p_dot <- matrix(p.adjust(as.vector(matrix_p), method = "BH"),
+                       ncol = ncol(matrix_p),
+                       nrow = nrow(matrix_p),
+                       byrow = FALSE
+)
+
+
+display_matrix <- 
+  ifelse(matrix_p_dot < 0.001, "■",
+  ifelse(matrix_p_dot < 0.01,  "▲",
+  ifelse(matrix_p_dot < 0.05,  "•", "")))
+
+my_breaks <- seq(-0.3, 0.3, length.out = 101)
+
+my_colours <- colorRampPalette(c("blue","white", "red"))(100)
+
+
+hm <- pheatmap(
+  matrix_rho_for_plot,
+  color = my_colours,
+  breaks = my_breaks,
+  na_col = "grey90",
+  cluster_rows = FALSE,
+  cluster_cols = FALSE, #cancers in teh same order as in article on a graph
+  annotation_row = annot_row, 
+  annotation_colors = ann_colors,
+  display_numbers = display_matrix,
+  fontsize_number = 6,
+  main = " ",
+  number_color = "black",
+  show_colnames = TRUE,
+  show_rownames = TRUE,
+  annotation_legend = TRUE,
+  fontsize = 5,
+  fontsize_col = 8,
+  border_color = NA,
+  cellwidth = 13,
+  cellheight = 10
+  )
+
+
+
+```
+
+```         
+```
