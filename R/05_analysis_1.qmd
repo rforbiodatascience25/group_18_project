@@ -12,6 +12,8 @@ format:
 editor: visual
 ---
 
+# FIGURE 1A
+
 ## Load the data
 
 ```{r}
@@ -246,23 +248,24 @@ display_matrix <-
   ifelse(matrix_p_dot < 0.01,  "▲",
   ifelse(matrix_p_dot < 0.05,  "•", "")))
 
+
 my_breaks <- seq(-0.3, 0.3, length.out = 101)
 
-my_colours <- colorRampPalette(c("blue","white", "red"))(100)
+my_colours <- colorRampPalette(c("blue","white", "red"))(101)
 
 
-hm <- pheatmap(
-  matrix_rho_for_plot,
+hm_grade <- pheatmap(
+  matrix_rho_plot,
   color = my_colours,
   breaks = my_breaks,
   na_col = "grey90",
   cluster_rows = FALSE,
-  cluster_cols = FALSE, #cancers in teh same order as in article on a graph
+  cluster_cols = FALSE, 
   annotation_row = annot_row, 
   annotation_colors = ann_colors,
   display_numbers = display_matrix,
   fontsize_number = 6,
-  main = " ",
+  main = "A: Grade ~ mRNA in TCGA tumors",
   number_color = "black",
   show_colnames = TRUE,
   show_rownames = TRUE,
@@ -270,13 +273,264 @@ hm <- pheatmap(
   fontsize = 5,
   fontsize_col = 8,
   border_color = NA,
-  cellwidth = 13,
-  cellheight = 10
+  legend = TRUE,
+  cellwidth = 9,
+  cellheight = 6
+ 
   )
 
 
 
 ```
 
-```         
+# FIGURE 1B
+
+## Checking the data
+
+```{r}
+print(unique(my_data$Stage))
+#now we are replacing text with numbers
+changed_data_for_stage <-my_data %>% 
+  mutate( Stage_in_numbers =
+            case_when(
+            Stage == "STAGE 0" ~ 0,
+            Stage == "STAGE IS" ~ 0,
+            Stage %in% c("STAGE I", "STAGE IA", "STAGE IB") ~ 1,
+            Stage %in% c("STAGE II", "STAGE IIA", "STAGE IIB", "STAGE IIC") ~ 2,
+            Stage %in% c("STAGE III", "STAGE IIIA", "STAGE IIIB", "STAGE IIIC") ~ 3,
+            Stage %in% c("STAGE IV", "STAGE IVA", "STAGE IVB", "STAGE IVC") ~ 4,
+            Stage == "STAGE I/II (NOS)" ~ 1.5,
+            Stage == "STAGE X" ~ NA,
+            TRUE ~ NA
+            )
+  )
+view(changed_data_for_stage)
+```
+
+## Correlation
+
+```{r}
+changed_data_for_stage$Cancer <- dplyr::recode(changed_data_for_stage$Cancer,
+  "blca_tcga_pan_can_atlas_2018"    = "BLCA",
+  "brca_tcga_pan_can_atlas_2018"    = "BRCA",
+  "cesc_tcga_pan_can_atlas_2018"    = "CESC",
+  "coadread_tcga_pan_can_atlas_2018"= "COAD",
+  "esca_tcga_pan_can_atlas_2018"    = "ESCA",
+  "gbm_tcga_pan_can_atlas_2018"     = "GBM",
+  "hnsc_tcga_pan_can_atlas_2018"    = "HNSC",
+  "kirc_tcga_pan_can_atlas_2018"    = "KIRC",
+  "kirp_tcga_pan_can_atlas_2018"    = "KIRP",
+  "lgg_tcga_pan_can_atlas_2018"     = "LGG",
+  "lihc_tcga_pan_can_atlas_2018"    = "LIHC",
+  "luad_tcga_pan_can_atlas_2018"    = "LUAD",
+  "lusc_tcga_pan_can_atlas_2018"    = "LUSC",
+  "ov_tcga_pan_can_atlas_2018"      = "OV",
+  "paad_tcga_pan_can_atlas_2018"    = "PAAD",
+  "prad_tcga_pan_can_atlas_2018"    = "PRAD",
+  "sarc_tcga_pan_can_atlas_2018"    = "SARC",
+  "skcm_tcga_pan_can_atlas_2018"    = "SKCM",
+  "stad_tcga_pan_can_atlas_2018"    = "STAD",
+  "tgct_tcga_pan_can_atlas_2018"    = "TGCT",
+  "thca_tcga_pan_can_atlas_2018"    = "THCA",
+  "ucec_tcga_pan_can_atlas_2018"    = "UCEC"
+)
+
+  
+cancer_order_stage <- c(
+  "TGCT", "KIRC", "KIRP", "ESCA",
+  "COAD", "LIHC", "HNSC", "BRCA", "LUSC", "SKCM",
+  "THCA", "LUAD", "STAD", "BLCA", "PAAD"
+)
+cancers_use_stage <- intersect(cancer_order_stage, unique(changed_data_for_stage$Cancer))
+
+changed_data_for_stage <- changed_data_for_stage %>%
+  filter(Cancer %in% cancers_use_stage)
+
+changed_data_for_stage$Cancer <- factor(changed_data_for_stage$Cancer,
+                              levels = cancers_use_stage)
+
+#here i define genes in the order for the graph
+genes_to_test_stage <- c(
+#class I
+  "HDAC8", "HDAC3", "HDAC2", "HDAC1",
+#class IV
+  "HDAC11",
+#class IIB
+  "HDAC10", "HDAC6",
+#class IIA
+  "HDAC7", "HDAC9", "HDAC5", "HDAC4",
+#class III
+  "SIRT7", "SIRT2", "SIRT6", "SIRT4", "SIRT1", "SIRT3", "SIRT5"
+
+)
+
+
+#correlation for each pair
+#pivot_longer- from wide to long
+s_correlation_stage <- changed_data_for_stage %>% 
+  pivot_longer(
+    cols = any_of(genes_to_test_stage),
+    names_to = "gene",
+    values_to = "expression"
+  ) %>% 
+  #group for each pair (gene + cancer)
+group_by(Cancer, gene) %>% 
+summarize(
+    summary_test_stage = broom::tidy(cor.test(expression, Stage_in_numbers, method ="spearman", exact = FALSE)), .groups = "drop"
+  ) %>% 
+  unnest(summary_test_stage) %>% 
+  select(Cancer, gene, rho = estimate, p.value)
+
+```
+
+## Matrix_rho
+
+```{r}
+matrix_rho_stage <- s_correlation_stage %>% 
+  select(gene, Cancer, rho) %>% 
+  pivot_wider(
+    names_from = Cancer,
+    values_from = rho
+  ) %>% 
+  column_to_rownames("gene") %>% 
+  as.matrix()
+```
+
+## Matrix_p
+
+```{r}
+matrix_p_stage <- s_correlation_stage %>% 
+  select(gene, Cancer, p.value) %>% 
+  pivot_wider(
+    names_from = Cancer,
+    values_from = p.value
+  ) %>% 
+  column_to_rownames("gene") %>% 
+  as.matrix()
+
+#filtering and sorting- without that R will sort the genes by alphabet 
+final_genes_stage <- genes_to_test_stage[genes_to_test_stage %in% rownames(matrix_rho_stage)]
+final_cancers_stage <- cancers_use_stage[cancers_use_stage %in% colnames(matrix_rho_stage)]
+
+#sorted versions
+matrix_rho_stage <- matrix_rho_stage[final_genes_stage, final_cancers_stage, drop = FALSE]
+matrix_p_stage   <- matrix_p_stage[final_genes_stage, final_cancers_stage, drop = FALSE]
+
+matrix_rho_plot_stage <- matrix_rho_stage
+matrix_rho_plot_stage[is.na(matrix_rho_stage)] <- 0
+```
+
+## Pheatmap
+
+```{r}
+#adnotations-> annot_row creates a legend, assignment to classes
+gene_classes <- c(
+  HDAC8="class I",
+  HDAC3="class I",
+  HDAC2="class I",
+  HDAC1="class I",
+  
+  HDAC11="class IV",
+  
+  HDAC10="class IIB",
+  HDAC6="class IIB",
+  
+  HDAC7="class IIA",
+  HDAC9="class IIA",
+  HDAC5="class IIA",
+  HDAC4="class IIA",
+  
+  SIRT7="class III",
+  SIRT2="class III",
+  SIRT6="class III",
+  SIRT4="class III",
+  SIRT1="class III",
+  SIRT3="class III",
+  SIRT5="class III"
+  
+  
+
+  
+)
+#data frame for heat map
+annot_row_stage <- data.frame(
+  HDAC_family = as.character(gene_classes[final_genes_stage]),
+  row.names = final_genes_stage,
+  stringsAsFactors = FALSE)
+
+annot_row_stage$HDAC_family <- factor(
+  annot_row_stage$HDAC_family,
+  levels = c("class I", "class IIA", "class IIB", "class III", "class IV")
+)
+#defining colors for each classe
+ann_colors_stage = list(
+  HDAC_family = c(
+    "class I" = "salmon",   
+    "class IIA" = "#E69F52", 
+    "class IIB" = "#BDB600", 
+    "class III" = "#009E60", 
+    "class IV" = "#008ECE"))
+    
+#BH correction for many tests- reduces fake positives 
+matrix_p_dot_stage <- matrix(p.adjust(as.vector(matrix_p_stage), method = "BH"),
+                       ncol = ncol(matrix_p_stage),
+                       nrow = nrow(matrix_p_stage),
+                       byrow = FALSE
+)
+
+
+display_matrix_stage <- 
+  ifelse(matrix_p_dot_stage < 0.001, "■",
+  ifelse(matrix_p_dot_stage < 0.01,  "▲",
+  ifelse(matrix_p_dot_stage < 0.05,  "•", "")))
+
+my_breaks_stage <- seq(-0.3, 0.3, length.out = 101)
+
+my_colours_stage <- colorRampPalette(c("blue","white", "red"))(100)
+
+
+hm_stage <- pheatmap(
+  matrix_rho_plot_stage,
+  color = my_colours_stage,
+  breaks = my_breaks_stage,
+  na_col = "grey90",
+  cluster_rows = FALSE,
+  cluster_cols = FALSE, 
+  annotation_row = annot_row_stage, 
+  annotation_colors = ann_colors_stage,
+  display_numbers = display_matrix_stage,
+  fontsize_number = 6,
+  main = "B: Stage ~ mRNA in TCGA tumors",
+  number_color = "black",
+  show_colnames = TRUE,
+  show_rownames = TRUE,
+  annotation_legend = TRUE,
+  fontsize = 5,
+  fontsize_col = 8,
+  border_color = NA,
+  cellwidth = 9,
+  cellheight = 6
+  )
+
+```
+
+# FIGURE 1A + 1B
+
+```{r}
+library(grid)
+library(gridExtra)
+```
+
+```{r}
+g_grade <- hm_grade$gtable
+g_stage <- hm_stage$gtable
+
+g_grade$widths <- g_stage$widths
+
+# next to each other
+spacer <- rectGrob(gp = gpar(col = NA))
+
+grid.arrange(g_grade, spacer, g_stage, 
+             ncol = 3, 
+             widths = c(0.48, 0.2, 0.48)) 
 ```
