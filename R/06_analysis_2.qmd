@@ -11,3 +11,132 @@ format:
     embed-resources: true
 editor: visual
 ---
+```{r}
+# --- Load libraries ---
+library(tidyverse)
+library(tidyr)
+library(broom)
+
+# --- Load data ---
+my_data <- read_csv("../data/02_dat_clean.csv")
+
+# --- Encode Grade as numeric (malignancy scale) ---
+changed_data <- my_data %>%
+  mutate(
+    Grade_in_numbers = case_when(
+      Grade == "G1" ~ 1,
+      Grade == "Low Grade" ~ 1,
+      Grade == "G2" ~ 2,
+      Grade == "G3" ~ 3,
+      Grade == "High Grade" ~ 3,
+      Grade == "G4" ~ 4,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  drop_na(Grade_in_numbers)
+
+# --- Recode Cancer study IDs to short labels ---
+changed_data$Cancer <- dplyr::recode(changed_data$Cancer,
+  "blca_tcga_pan_can_atlas_2018"     = "BLCA",
+  "brca_tcga_pan_can_atlas_2018"     = "BRCA",
+  "cesc_tcga_pan_can_atlas_2018"     = "CESC",
+  "coadread_tcga_pan_can_atlas_2018" = "COAD",
+  "esca_tcga_pan_can_atlas_2018"     = "ESCA",
+  "gbm_tcga_pan_can_atlas_2018"      = "GBM",
+  "hnsc_tcga_pan_can_atlas_2018"     = "HNSC",
+  "kirc_tcga_pan_can_atlas_2018"     = "KIRC",
+  "kirp_tcga_pan_can_atlas_2018"     = "KIRP",
+  "lgg_tcga_pan_can_atlas_2018"      = "LGG",
+  "lihc_tcga_pan_can_atlas_2018"     = "LIHC",
+  "luad_tcga_pan_can_atlas_2018"     = "LUAD",
+  "lusc_tcga_pan_can_atlas_2018"     = "LUSC",
+  "ov_tcga_pan_can_atlas_2018"       = "OV",
+  "paad_tcga_pan_can_atlas_2018"     = "PAAD",
+  "prad_tcga_pan_can_atlas_2018"     = "PRAD",
+  "sarc_tcga_pan_can_atlas_2018"     = "SARC",
+  "skcm_tcga_pan_can_atlas_2018"     = "SKCM",
+  "stad_tcga_pan_can_atlas_2018"     = "STAD",
+  "tgct_tcga_pan_can_atlas_2018"     = "TGCT",
+  "thca_tcga_pan_can_atlas_2018"     = "THCA",
+  "ucec_tcga_pan_can_atlas_2018"     = "UCEC"
+)
+
+# --- Fix cancer order ---
+cancer_order <- c(
+  "LIHC", "UCEC", "KIRC", "LGG",
+  "OV", "PAAD",
+  "HNSC", "ESCA", "CESC", "STAD",
+  "COAD", "BLCA"
+)
+cancers_use <- intersect(cancer_order, unique(changed_data$Cancer))
+
+changed_data <- changed_data %>%
+  filter(Cancer %in% cancers_use) %>%
+  mutate(Cancer = factor(Cancer, levels = cancers_use))
+
+# --- Define genes in plotting order ---
+genes_to_test <- c(
+  "HDAC3", "HDAC2", "HDAC1", "HDAC8",   # class I
+  "HDAC7", "HDAC9", "HDAC5", "HDAC4",   # class IIA
+  "SIRT1", "SIRT7", "SIRT6", "SIRT4", "SIRT3", "SIRT2", "SIRT5", # class III
+  "HDAC6", "HDAC10",                    # class IIB
+  "HDAC11"                              # class IV
+)
+
+# --- Compute Spearman correlations ---
+s_correlation <- changed_data %>%
+  pivot_longer(
+    cols = any_of(genes_to_test),
+    names_to = "gene",
+    values_to = "expression"
+  ) %>%
+  group_by(Cancer, gene) %>%
+  summarize(
+    summary_test = broom::tidy(cor.test(expression, Grade_in_numbers, method = "spearman", exact = FALSE)),
+    .groups = "drop"
+  ) %>%
+  unnest(summary_test) %>%
+  select(Cancer, gene, rho = estimate, p.value)
+
+# --- BH correction ---
+s_correlation <- s_correlation %>%
+  group_by(gene) %>%
+  mutate(q = p.adjust(p.value, method = "BH")) %>%
+  ungroup()
+
+# --- Add symbols for significance ---
+s_correlation <- s_correlation %>%
+  mutate(symbol = case_when(
+    q < 0.001 ~ "●",
+    q < 0.01  ~ "▲",
+    q < 0.05  ~ "■",
+    TRUE      ~ ""
+  ))
+
+# --- Add HDAC family annotation ---
+gene_classes <- c(
+  HDAC3="class I", HDAC2="class I", HDAC1="class I", HDAC8="class I",
+  HDAC7="class IIA", HDAC9="class IIA", HDAC5="class IIA", HDAC4="class IIA",
+  SIRT1="class III", SIRT7="class III", SIRT6="class III", SIRT4="class III",
+  SIRT3="class III", SIRT2="class III", SIRT5="class III",
+  HDAC6="class IIB", HDAC10="class IIB",
+  HDAC11="class IV"
+)
+
+s_correlation <- s_correlation %>%
+  mutate(HDAC_family = gene_classes[gene])
+
+# --- Heatmap with ggplot2 ---
+ggplot(s_correlation, aes(x = Cancer, y = gene, fill = rho)) +
+  geom_tile(color = "grey90") +
+  geom_text(aes(label = symbol), size = 3) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red",
+                       limits = c(-0.3, 0.3), name = "Spearman rho") +
+  facet_grid(rows = vars(HDAC_family), scales = "free_y", space = "free_y") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank(),
+        strip.text.y = element_text(angle = 0)) +
+  labs(title = "mRNAsi vs HDAC expression in TCGA tumors",
+       x = "Cancer type", y = "Gene")
+'''
