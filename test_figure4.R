@@ -1,201 +1,196 @@
 
-if (!dir.exists("_raw")) dir.create("_raw", showWarnings = FALSE)
-
-if (!require("cBioPortalData", quietly = TRUE)) {
-  if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-  BiocManager::install("cBioPortalData")
-}
-library(cBioPortalData)
+# --- Load libraries ---
 library(tidyverse)
-library(ComplexHeatmap)
-library(circlize)
+library(pheatmap)
+library(tidyr)
+library(broom)
+library(grid)
 
-# Genes HDAC/SIRT
-genes <- c(
-  "HDAC1","HDAC2","HDAC3","HDAC8",
-  "HDAC4","HDAC5","HDAC7","HDAC9",
-  "HDAC6","HDAC10",
-  "SIRT1","SIRT2","SIRT3","SIRT4","SIRT5","SIRT6","SIRT7",
+# --- Load data ---
+my_data <- read_csv("../data/02_dat_clean.csv")
+# view(my_data)  # optional
+
+# --- Encode Grade as numeric (malignancy scale) ---
+# G1 / Low Grade = 1 (low malignancy)
+# G2             = 2 (medium malignancy)
+# G3 / High Grade= 3 (high malignancy)
+# G4             = 4 (highest malignancy)
+changed_data <- my_data %>%
+  mutate(
+    Grade_in_numbers = case_when(
+      Grade == "G1" ~ 1,
+      Grade == "Low Grade" ~ 1,
+      Grade == "G2" ~ 2,
+      Grade == "G3" ~ 3,
+      Grade == "High Grade" ~ 3,
+      Grade == "G4" ~ 4,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  drop_na(Grade_in_numbers)
+
+# --- Recode Cancer study IDs to short labels (to match figure) ---
+changed_data$Cancer <- dplyr::recode(changed_data$Cancer,
+                                     "blca_tcga_pan_can_atlas_2018"     = "BLCA",
+                                     "brca_tcga_pan_can_atlas_2018"     = "BRCA",
+                                     "cesc_tcga_pan_can_atlas_2018"     = "CESC",
+                                     "coadread_tcga_pan_can_atlas_2018" = "COAD",
+                                     "esca_tcga_pan_can_atlas_2018"     = "ESCA",
+                                     "gbm_tcga_pan_can_atlas_2018"      = "GBM",
+                                     "hnsc_tcga_pan_can_atlas_2018"     = "HNSC",
+                                     "kirc_tcga_pan_can_atlas_2018"     = "KIRC",
+                                     "kirp_tcga_pan_can_atlas_2018"     = "KIRP",
+                                     "lgg_tcga_pan_can_atlas_2018"      = "LGG",
+                                     "lihc_tcga_pan_can_atlas_2018"     = "LIHC",
+                                     "luad_tcga_pan_can_atlas_2018"     = "LUAD",
+                                     "lusc_tcga_pan_can_atlas_2018"     = "LUSC",
+                                     "ov_tcga_pan_can_atlas_2018"       = "OV",
+                                     "paad_tcga_pan_can_atlas_2018"     = "PAAD",
+                                     "prad_tcga_pan_can_atlas_2018"     = "PRAD",
+                                     "sarc_tcga_pan_can_atlas_2018"     = "SARC",
+                                     "skcm_tcga_pan_can_atlas_2018"     = "SKCM",
+                                     "stad_tcga_pan_can_atlas_2018"     = "STAD",
+                                     "tgct_tcga_pan_can_atlas_2018"     = "TGCT",
+                                     "thca_tcga_pan_can_atlas_2018"     = "THCA",
+                                     "ucec_tcga_pan_can_atlas_2018"     = "UCEC"
+)
+
+# --- Fix the cancer order to match the figure (no clustering) ---
+cancer_order <- c(
+  "LIHC", "UCEC", "KIRC", "LGG",
+  "OV", "PAAD",
+  "HNSC", "ESCA", "CESC", "STAD",
+  "COAD", "BLCA"
+)
+cancers_use <- intersect(cancer_order, unique(changed_data$Cancer))
+
+changed_data <- changed_data %>%
+  filter(Cancer %in% cancers_use) %>%
+  mutate(Cancer = factor(Cancer, levels = cancers_use))
+
+# --- Define genes in the plotting order (HDAC/SIRT classes) ---
+genes_to_test <- c(
+  # class I
+  "HDAC3", "HDAC2", "HDAC1", "HDAC8",
+  # class IIA
+  "HDAC7", "HDAC9", "HDAC5", "HDAC4",
+  # class III
+  "SIRT1", "SIRT7", "SIRT6", "SIRT4", "SIRT3", "SIRT2", "SIRT5",
+  # class IIB
+  "HDAC6", "HDAC10",
+  # class IV
   "HDAC11"
 )
 
-# selected studies
-studies <- c(
-  "brca_tcga_pan_can_atlas_2018",
-  "luad_tcga_pan_can_atlas_2018",
-  "coadread_tcga_pan_can_atlas_2018"
-)
-
-study_tbl <- tibble(
-  studyId   = studies,
-  profileId = paste0(studies, "_rna_seq_v2_mrna")
-)
-
-cbio <- cBioPortal()
-
-# download genical expression
-study_tbl %>%
-  mutate(
-    expr = map2(studyId, profileId, ~ {
-      message("Scarico espressione per ", .x)
-      se <- getDataByGenes(
-        api = cbio,
-        studyId = .x,
-        genes = genes,
-        molecularProfileIds = .y,
-        by = "hugoGeneSymbol"
-      )[[1]]
-      df <- as.data.frame(se)
-      df %>% select(patientId, hugoGeneSymbol, value)
-    }),
-    file = paste0("_raw/expr_", studyId, ".csv"),
-    written = map2(expr, file, write_csv)
-  ) %>% invisible()
-
-#download clinical data
-study_tbl %>%
-  mutate(
-    clin = map(studyId, ~ {
-      message("Scarico clinici per ", .x)
-      as.data.frame(clinicalData(cbio, .x))
-    }),
-    file = paste0("_raw/clinical_", studyId, ".csv"),
-    written = map2(clin, file, write_csv)
-  ) %>% invisible()
-
-# load data
-load_study_data <- function(study) {
-  expr <- read_csv(paste0("_raw/expr_", study, ".csv"), show_col_types = FALSE)
-  clin <- read_csv(paste0("_raw/clinical_", study, ".csv"), show_col_types = FALSE)
-
-  mr_col <- grep("mRNA|stem|Stemness", names(clin), value = TRUE, ignore.case = TRUE)
-  if (length(mr_col) == 0) {
-    message("⚠️ mRNAsi non trovato per ", study)
-    return(NULL)
-  }
-
-  clin <- clin %>% rename(mRNAsi = all_of(mr_col[1]))
-  expr_wide <- expr %>% pivot_wider(names_from = hugoGeneSymbol, values_from = value)
-  expr_wide %>% inner_join(clin, by = "patientId")
-}
-
-# Correlations
-compute_correlations <- function(df, study) {
-  map_dfr(genes, function(g) {
-    if (!g %in% names(df)) return(NULL)
-    test <- suppressWarnings(cor.test(df[[g]], df$mRNAsi, method = "spearman"))
-    tibble(study = study, gene = g, rho = test$estimate, p = test$p.value)
-  })
-}
-
-# Loop on valid studies
-all_results <- map_dfr(studies, ~{
-  df <- load_study_data(.x)
-  if (is.null(df)) return(NULL)
-  compute_correlations(df, .x)
-})
-
-# Correction
-all_results <- all_results %>%
-  group_by(gene) %>%
-  mutate(q = p.adjust(p, method = "BH")) %>%
-  ungroup()
-
-# Matrixes for heatmap
-cor_mat <- all_results %>%
-  select(gene, study, rho) %>%
-  pivot_wider(names_from = study, values_from = rho) %>%
-  column_to_rownames("gene") %>%
-  as.matrix()
-
-q_mat <- all_results %>%
-  select(gene, study, q) %>%
-  pivot_wider(names_from = study, values_from = q) %>%
-  column_to_rownames("gene") %>%
-  as.matrix()
-
-# Symbols
-pch_mat <- matrix(NA, nrow = nrow(q_mat), ncol = ncol(q_mat))
-for(i in seq_len(nrow(q_mat))) {
-  for(j in seq_len(ncol(q_mat))) {
-    pch_mat[i,j] <- case_when(
-      q_mat[i,j] < 0.001 ~ 16,  # circle
-      q_mat[i,j] < 0.01  ~ 17,  # triangle
-      q_mat[i,j] < 0.05  ~ 15,  # square
-      TRUE               ~ NA_real_
-    )
-  }
-}
-
-# Classes HDAC
-hdac_class <- tibble(
-  gene = rownames(cor_mat),
-  class = case_when(
-    gene %in% c("HDAC1","HDAC2","HDAC3","HDAC8") ~ "class I",
-    gene %in% c("HDAC4","HDAC5","HDAC7","HDAC9") ~ "class IIA",
-    gene %in% c("HDAC6","HDAC10") ~ "class IIB",
-    gene %in% c("SIRT1","SIRT2","SIRT3","SIRT4","SIRT5","SIRT6","SIRT7") ~ "class III",
-    gene == "HDAC11" ~ "class IV",
-    TRUE ~ "other"
-  )
-)
-
-class_colors <- c(
-  "class I"   = "#F8766D",
-  "class IIA" = "#E68613",
-  "class IIB" = "#00BA38",
-  "class III" = "#619CFF",
-  "class IV"  = "#C77CFF"
-)
-
-row_ha <- rowAnnotation(
-  HDAC_class = hdac_class$class,
-  col = list(HDAC_class = class_colors),
-  width = unit(5, "mm")
-)
-
-# Figure 4A – Heatmap
-col_fun <- colorRamp2(c(-0.7, 0, 0.8), c("#313695", "white", "#A50026"))
-
-Heatmap(
-  cor_mat,
-  name = "rho",
-  col = col_fun,
-  cluster_rows = TRUE,
-  cluster_columns = TRUE,
-  left_annotation = row_ha,
-  cell_fun = function(j, i, x, y, w, h, fill) {
-    pch <- pch_mat[i,j]
-    if(!is.na(pch)) {
-      grid.points(x, y, pch = pch, size = unit(3.5, "mm"))
-    }
-  },
-  heatmap_legend_param = list(
-    title = "Spearman rho",
-    legend_height = unit(4, "cm")
-  )
-)
-
-# Figure 4B – Barplot
-figB <- all_results %>%
-  mutate(
-    sign = case_when(
-      q > 0.05 ~ "ns",
-      rho > 0  ~ "positive",
-      TRUE     ~ "negative"
-    )
+# --- Compute Spearman correlations and p-values (per gene x cancer) ---
+s_correlation <- changed_data %>%
+  pivot_longer(
+    cols = any_of(genes_to_test),
+    names_to = "gene",
+    values_to = "expression"
   ) %>%
-  group_by(gene, sign) %>%
-  summarise(n = n(), .groups = "drop")
+  group_by(Cancer, gene) %>%
+  summarize(
+    summary_test = broom::tidy(cor.test(expression, Grade_in_numbers, method = "spearman", exact = FALSE)),
+    .groups = "drop"
+  ) %>%
+  unnest(summary_test) %>%
+  select(Cancer, gene, rho = estimate, p.value)
 
-ggplot(figB, aes(x = n, y = gene, fill = sign)) +
-  geom_col() +
-  scale_fill_manual(
-    values = c(positive = "red", negative = "blue", ns = "grey80")
-  ) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Number of TCGA cohorts",
-    y = "",
-    title = "Number of TCGA cohorts with positive or negative correlation"
+# --- Build matrices (rho and p) in the fixed order ---
+matrix_rho <- s_correlation %>%
+  select(gene, Cancer, rho) %>%
+  pivot_wider(names_from = Cancer, values_from = rho) %>%
+  column_to_rownames("gene") %>%
+  as.matrix()
+
+matrix_p <- s_correlation %>%
+  select(gene, Cancer, p.value) %>%
+  pivot_wider(names_from = Cancer, values_from = p.value) %>%
+  column_to_rownames("gene") %>%
+  as.matrix()
+
+# --- Filter and sort matrices to match desired gene/cancer order ---
+final_genes   <- genes_to_test[genes_to_test %in% rownames(matrix_rho)]
+final_cancers <- cancers_use[cancers_use %in% colnames(matrix_rho)]
+
+matrix_rho    <- matrix_rho[final_genes, final_cancers, drop = FALSE]
+matrix_p      <- matrix_p[final_genes, final_cancers, drop = FALSE]
+
+# --- Replace NA correlations with 0 for plotting (optional) ---
+matrix_rho_plot <- matrix_rho
+matrix_rho_plot[is.na(matrix_rho_plot)] <- 0
+
+# --- BH correction on p-values to get q-values (matrix form) ---
+matrix_q <- matrix(
+  p.adjust(as.vector(matrix_p), method = "BH"),
+  nrow = nrow(matrix_p),
+  ncol = ncol(matrix_p),
+  byrow = FALSE,
+  dimnames = dimnames(matrix_p)
+)
+
+# --- Build display annotations (symbols) based on q-values ---
+# ■ for q < 0.001, ▲ for q < 0.01, • for q < 0.05, blank otherwise
+display_matrix <- ifelse(matrix_q < 0.001, "■",
+                         ifelse(matrix_q < 0.01,  "▲",
+                                ifelse(matrix_q < 0.05,  "•", "")))
+
+# --- Row annotation (HDAC classes) ---
+gene_classes <- c(
+  HDAC3="class I", HDAC2="class I", HDAC1="class I", HDAC8="class I",
+  HDAC7="class IIA", HDAC9="class IIA", HDAC5="class IIA", HDAC4="class IIA",
+  SIRT1="class III", SIRT7="class III", SIRT6="class III", SIRT4="class III",
+  SIRT3="class III", SIRT2="class III", SIRT5="class III",
+  HDAC6="class IIB", HDAC10="class IIB",
+  HDAC11="class IV"
+)
+
+annot_row <- data.frame(
+  HDAC_family = as.character(gene_classes[final_genes]),
+  row.names = final_genes,
+  stringsAsFactors = FALSE
+)
+
+annot_row$HDAC_family <- factor(
+  annot_row$HDAC_family,
+  levels = c("class I", "class IIA", "class IIB", "class III", "class IV")
+)
+
+ann_colors <- list(
+  HDAC_family = c(
+    "class I"   = "salmon",
+    "class IIA" = "#E69F52",
+    "class IIB" = "#BDB600",
+    "class III" = "#009E60",
+    "class IV"  = "#008ECE"
   )
+)
+
+# --- Heatmap color scale and breaks ---
+my_breaks  <- seq(-0.3, 0.3, length.out = 101)
+my_colours <- colorRampPalette(c("blue","white","red"))(100)
+
+# --- Plot heatmap (no clustering, fixed order) ---
+pheatmap(
+  matrix_rho_plot,
+  color = my_colours,
+  breaks = my_breaks,
+  na_col = "grey90",
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  annotation_row = annot_row,
+  annotation_colors = ann_colors,
+  display_numbers = display_matrix,   # significance symbols (q-based)
+  fontsize_number = 6,
+  main = " ",
+  number_color = "black",
+  show_colnames = TRUE,
+  show_rownames = TRUE,
+  annotation_legend = TRUE,
+  fontsize = 5,
+  fontsize_col = 8,
+  border_color = NA,
+  cellwidth = 13,
+  cellheight = 10
+)
