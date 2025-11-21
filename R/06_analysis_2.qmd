@@ -158,12 +158,8 @@ pheatmap(
   display_numbers = display_matrix_stemness,
   fontsize_number = 6,
   
-  main = "A: mRNAsi vs. HDAC expression",
-  
-  border_color = "black",
-  legend_breaks = c(-0.7, 0, 0.8),
-  legend_labels = c("-0.7", "0", "0.8"),
-  
+  main = "mRNAsi vs HDAC expression",
+
   cellwidth = 10, 
   cellheight = 8
 )
