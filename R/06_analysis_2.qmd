@@ -24,6 +24,7 @@ data_for_stemness <- my_data %>%
   drop_na(mRNAsi) 
 
 
+
 data_for_stemness$Cancer <- dplyr::recode(data_for_stemness$Cancer,
   "blca_tcga_pan_can_atlas_2018"    = "BLCA",
   "brca_tcga_pan_can_atlas_2018"    = "BRCA",
