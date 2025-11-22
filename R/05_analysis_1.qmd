@@ -15,16 +15,19 @@ editor: visual
 ## Load the data
 
 ```{r}
-
+#rm(list=ls())
 library(tidyverse)
-library(pheatmap)
+#library(pheatmap)
 library(tidyr)
 library(broom)
 library(grid)
+library(patchwork)
 
 my_data <- read_csv("../data/02_dat_clean.csv")
-view(my_data)
+#view(my_data)
 ```
+
+# FIGURE 1A
 
 ## Checking the data
 
@@ -130,7 +133,7 @@ s_correlation <- changed_data %>%
   #group for each pair (gene + cancer)
 group_by(Cancer, gene) %>% 
 summarize(
-    summary_test = broom::tidy(cor.test(expression, Grade_in_numbers, method ="spearman", exact = FALSE)), .groups = "drop"
+    summary_test = broom::tidy(cor.test(expression, Grade_in_numbers, method ="spearman")), .groups = "drop"
   ) %>% 
   unnest(summary_test) %>% 
   select(Cancer, gene, rho = estimate, p.value)
@@ -172,8 +175,97 @@ final_cancers <- cancers_use[cancers_use %in% colnames(matrix_rho)]
 matrix_rho <- matrix_rho[final_genes, final_cancers, drop = FALSE]
 matrix_p   <- matrix_p[final_genes, final_cancers, drop = FALSE]
 
+#NA -> 0
 matrix_rho_plot <- matrix_rho
 matrix_rho_plot[is.na(matrix_rho_plot)] <- 0
+```
+
+## Organizing before the figure
+
+```{r}
+#adnotations-> annot_row creates a legend, assignment to classes
+gene_classes <- c(
+  HDAC3="class I",
+  HDAC2="class I",
+  HDAC1="class I",
+  HDAC8="class I",
+
+  HDAC7="class IIA",
+  HDAC9="class IIA",
+  HDAC5="class IIA",
+  HDAC4="class IIA",
+  
+  HDAC6="class IIB",
+  HDAC10="class IIB",
+  
+  SIRT1="class III",
+  SIRT7="class III",
+  SIRT6="class III",
+  SIRT4="class III",
+  SIRT3="class III",
+  SIRT2="class III",
+  SIRT5="class III",
+  
+  HDAC11="class IV"
+)
+#data frame for heatmap
+annot_df <- data.frame(
+  gene = final_genes,
+  HDAC_family = gene_classes[final_genes]
+)
+
+#BH correction for many tests- reduces fake positives 
+matrix_p_dot <- matrix(p.adjust(as.vector(matrix_p), method = "BH"),
+                       ncol = ncol(matrix_p),
+                       nrow = nrow(matrix_p),
+                       byrow = FALSE
+)
+#adding markers depending on p value
+display_matrix <- 
+  ifelse(matrix_p_dot < 0.001, "■",
+  ifelse(matrix_p_dot < 0.01,  "▲",
+  ifelse(matrix_p_dot < 0.05,  "•", "")))
+
+
+#color palette
+my_breaks <- seq(-0.3, 0.3, length.out = 100)
+
+my_colours <- colorRampPalette(c("blue","white", "red"))(100)
+
+
+# data preparation for ggplot 
+df_long <- matrix_rho_plot %>%
+  as.data.frame() %>%
+  rownames_to_column("gene") %>%
+  pivot_longer(-gene, names_to = "Cancer", values_to = "value")
+
+df_long$Cancer <- factor(df_long$Cancer, levels = cancer_order)
+
+df_long$label <- as.character(display_matrix)
+
+
+#adnotations panel
+p_annot <- ggplot(annot_df, aes(
+    x=1,
+    y=factor(gene, levels=rev(final_genes)),
+    fill=HDAC_family)) +
+  geom_tile() +
+  scale_fill_manual(values=c(
+    "class I"="salmon",
+    "class IIA"="#E69F52",
+    "class IIB"="#BDB600",
+    "class III"="#009E60",
+    "class IV"="#008ECE")) +
+  scale_y_discrete(expand = c(0, 0)) + 
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(y = "HDAC family", fill = "HDAC family") +
+  theme_void() +
+  theme(
+    plot.margin = margin(t = 5.5, r = 0, b = 5.5, l = 5.5)
+    ) +
+  labs(fill = "HDAC family")
+
+
 ```
 
 ## Pheatmap
@@ -189,94 +281,281 @@ From the correlation:
 -   Matrix_p says how random are the results. On a graph a dot means that the value is small, so the result is certain
 
 ```{r}
+#heatmap
+p_heatmap <- ggplot(df_long,
+                    aes(x=Cancer,
+                        y=factor(gene, levels=rev(final_genes)),
+                        fill=value)) +
+  geom_tile(color = "white", size = 0.2) +
+  geom_text(aes(label=label), size=3, vjust = 0.75) +
+  scale_fill_gradientn(colors=my_colours, limits=c(-0.3,0.3), name = "rho value") + scale_y_discrete(expand = c(0, 0), position = "right") + 
+  scale_x_discrete(expand = c(0, 0)) +
+  theme_minimal(base_size=7) +
+  theme(
+    axis.text.x = element_text(angle=90, vjust=0.5, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = margin(t = 5.5, r = 5.5, b = 5.5, l = 0),
+    legend.position = "right"
+  ) +
+  labs(title="A: Grade ~ mRNA in TCGA tumors")
+
+
+#heatmap + adnotations
+final_plot <- p_annot + p_heatmap +
+  plot_layout(widths = c(1, 20), guides = 'collect') 
+
+final_plot
+```
+
+# FIGURE 1B
+
+## Checking the data
+
+```{r}
+print(unique(my_data$Stage))
+#now we are replacing text with numbers
+changed_data_for_stage <-my_data %>% 
+  mutate( Stage_in_numbers =
+            case_when(
+            Stage == "STAGE 0" ~ 0,
+            Stage == "STAGE IS" ~ 0,
+            Stage %in% c("STAGE I", "STAGE IA", "STAGE IB") ~ 1,
+            Stage %in% c("STAGE II", "STAGE IIA", "STAGE IIB", "STAGE IIC") ~ 2,
+            Stage %in% c("STAGE III", "STAGE IIIA", "STAGE IIIB", "STAGE IIIC") ~ 3,
+            Stage %in% c("STAGE IV", "STAGE IVA", "STAGE IVB", "STAGE IVC") ~ 4,
+            Stage == "STAGE I/II (NOS)" ~ 1.5,
+            Stage == "STAGE X" ~ NA,
+            TRUE ~ NA
+            )
+  )
+view(changed_data_for_stage)
+```
+
+## Correlation
+
+```{r}
+changed_data_for_stage$Cancer <- dplyr::recode(changed_data_for_stage$Cancer,
+  "blca_tcga_pan_can_atlas_2018"    = "BLCA",
+  "brca_tcga_pan_can_atlas_2018"    = "BRCA",
+  "cesc_tcga_pan_can_atlas_2018"    = "CESC",
+  "coadread_tcga_pan_can_atlas_2018"= "COAD",
+  "esca_tcga_pan_can_atlas_2018"    = "ESCA",
+  "gbm_tcga_pan_can_atlas_2018"     = "GBM",
+  "hnsc_tcga_pan_can_atlas_2018"    = "HNSC",
+  "kirc_tcga_pan_can_atlas_2018"    = "KIRC",
+  "kirp_tcga_pan_can_atlas_2018"    = "KIRP",
+  "lgg_tcga_pan_can_atlas_2018"     = "LGG",
+  "lihc_tcga_pan_can_atlas_2018"    = "LIHC",
+  "luad_tcga_pan_can_atlas_2018"    = "LUAD",
+  "lusc_tcga_pan_can_atlas_2018"    = "LUSC",
+  "ov_tcga_pan_can_atlas_2018"      = "OV",
+  "paad_tcga_pan_can_atlas_2018"    = "PAAD",
+  "prad_tcga_pan_can_atlas_2018"    = "PRAD",
+  "sarc_tcga_pan_can_atlas_2018"    = "SARC",
+  "skcm_tcga_pan_can_atlas_2018"    = "SKCM",
+  "stad_tcga_pan_can_atlas_2018"    = "STAD",
+  "tgct_tcga_pan_can_atlas_2018"    = "TGCT",
+  "thca_tcga_pan_can_atlas_2018"    = "THCA",
+  "ucec_tcga_pan_can_atlas_2018"    = "UCEC"
+)
+
+  
+cancer_order_stage <- c(
+  "TGCT", "KIRC", "KIRP", "ESCA",
+  "COAD", "LIHC", "HNSC", "BRCA", "LUSC", "SKCM",
+  "THCA", "LUAD", "STAD", "BLCA", "PAAD"
+)
+cancers_use_stage <- intersect(cancer_order_stage, unique(changed_data_for_stage$Cancer))
+
+changed_data_for_stage <- changed_data_for_stage %>%
+  filter(Cancer %in% cancers_use_stage)
+
+changed_data_for_stage$Cancer <- factor(changed_data_for_stage$Cancer,
+                              levels = cancers_use_stage)
+
+#here i define genes in the order for the graph
+genes_to_test_stage <- c(
+#class I
+  "HDAC8", "HDAC3", "HDAC2", "HDAC1",
+#class IV
+  "HDAC11",
+#class IIB
+  "HDAC10", "HDAC6",
+#class IIA
+  "HDAC7", "HDAC9", "HDAC5", "HDAC4",
+#class III
+  "SIRT7", "SIRT2", "SIRT6", "SIRT4", "SIRT1", "SIRT3", "SIRT5"
+
+)
+
+
+#correlation for each pair
+#pivot_longer- from wide to long
+s_correlation_stage <- changed_data_for_stage %>% 
+  pivot_longer(
+    cols = any_of(genes_to_test_stage),
+    names_to = "gene",
+    values_to = "expression"
+  ) %>% 
+  #group for each pair (gene + cancer)
+group_by(Cancer, gene) %>% 
+summarize(
+    summary_test_stage = broom::tidy(cor.test(expression, Stage_in_numbers, method ="spearman", exact = FALSE)), .groups = "drop"
+  ) %>% 
+  unnest(summary_test_stage) %>% 
+  select(Cancer, gene, rho = estimate, p.value)
+
+```
+
+## Matrix_rho
+
+```{r}
+matrix_rho_stage <- s_correlation_stage %>% 
+  select(gene, Cancer, rho) %>% 
+  pivot_wider(
+    names_from = Cancer,
+    values_from = rho
+  ) %>% 
+  column_to_rownames("gene") %>% 
+  as.matrix()
+```
+
+## Matrix_p
+
+```{r}
+matrix_p_stage <- s_correlation_stage %>% 
+  select(gene, Cancer, p.value) %>% 
+  pivot_wider(
+    names_from = Cancer,
+    values_from = p.value
+  ) %>% 
+  column_to_rownames("gene") %>% 
+  as.matrix()
+
+#filtering and sorting- without that R will sort the genes by alphabet 
+final_genes_stage <- genes_to_test_stage[genes_to_test_stage %in% rownames(matrix_rho_stage)]
+final_cancers_stage <- cancers_use_stage[cancers_use_stage %in% colnames(matrix_rho_stage)]
+
+#sorted versions
+matrix_rho_stage <- matrix_rho_stage[final_genes_stage, final_cancers_stage, drop = FALSE]
+matrix_p_stage   <- matrix_p_stage[final_genes_stage, final_cancers_stage, drop = FALSE]
+
+matrix_rho_plot_stage <- matrix_rho_stage
+matrix_rho_plot_stage[is.na(matrix_rho_stage)] <- 0
+```
+
+## Organizing before the figure
+
+```{r}
 #adnotations-> annot_row creates a legend, assignment to classes
-gene_classes <- c(
+gene_classes_stage <- c(
+  HDAC8="class I",
   HDAC3="class I",
   HDAC2="class I",
   HDAC1="class I",
-  HDAC8="class I",
-
+  
+  HDAC11="class IV",
+  
+  HDAC10="class IIB",
+  HDAC6="class IIB",
+  
   HDAC7="class IIA",
   HDAC9="class IIA",
   HDAC5="class IIA",
   HDAC4="class IIA",
   
-  SIRT1="class III",
   SIRT7="class III",
+  SIRT2="class III",
   SIRT6="class III",
   SIRT4="class III",
+  SIRT1="class III",
   SIRT3="class III",
-  SIRT2="class III",
-  SIRT5="class III",
-  
-  HDAC6="class IIB",
-  HDAC10="class IIB",
-
-  HDAC11="class IV"
+  SIRT5="class III"
 )
 #data frame for heat map
-annot_row <- data.frame(
-  HDAC_family = as.character(gene_classes[final_genes]),
-  row.names = final_genes,
-  stringsAsFactors = FALSE)
+annot_df_stage <- data.frame(
+  gene = final_genes_stage,
+  HDAC_family = gene_classes_stage[final_genes_stage])
 
-annot_row$HDAC_family <- factor(
-  annot_row$HDAC_family,
-  levels = c("class I", "class IIA", "class IIB", "class III", "class IV")
-)
-#defining colors for each class: red, blue, green, purple, orange
-ann_colors = list(
-  HDAC_family = c(
-    "class I" = "salmon",   
-    "class IIA" = "#E69F52", 
-    "class IIB" = "#BDB600", 
-    "class III" = "#009E60", 
-    "class IV" = "#008ECE"))
-    
 #BH correction for many tests- reduces fake positives 
-matrix_p_dot <- matrix(p.adjust(as.vector(matrix_p), method = "BH"),
-                       ncol = ncol(matrix_p),
-                       nrow = nrow(matrix_p),
-                       byrow = FALSE
-)
+matrix_p_dot <- matrix(p.adjust(as.vector(matrix_p_stage), method = "BH"),
+                       ncol = ncol(matrix_p_stage),
+                       nrow = nrow(matrix_p_stage),
+                       byrow = FALSE)
 
-
-display_matrix <- 
+#adding markers depending on p value
+display_matrix_stage <- 
   ifelse(matrix_p_dot < 0.001, "■",
   ifelse(matrix_p_dot < 0.01,  "▲",
   ifelse(matrix_p_dot < 0.05,  "•", "")))
 
-my_breaks <- seq(-0.3, 0.3, length.out = 101)
+#color palette
+my_breaks_stage <- seq(-0.3, 0.3, length.out = 100)
 
-my_colours <- colorRampPalette(c("blue","white", "red"))(100)
+my_colours_stage <- colorRampPalette(c("blue","white", "red"))(100)
 
+# data preparation for ggplot 
+df_long_stage <- matrix_rho_plot_stage %>%
+  as.data.frame() %>%
+  rownames_to_column("gene") %>%
+  pivot_longer(-gene, names_to = "Cancer", values_to = "value")
 
-hm <- pheatmap(
-  matrix_rho_for_plot,
-  color = my_colours,
-  breaks = my_breaks,
-  na_col = "grey90",
-  cluster_rows = FALSE,
-  cluster_cols = FALSE, #cancers in teh same order as in article on a graph
-  annotation_row = annot_row, 
-  annotation_colors = ann_colors,
-  display_numbers = display_matrix,
-  fontsize_number = 6,
-  main = " ",
-  number_color = "black",
-  show_colnames = TRUE,
-  show_rownames = TRUE,
-  annotation_legend = TRUE,
-  fontsize = 5,
-  fontsize_col = 8,
-  border_color = NA,
-  cellwidth = 13,
-  cellheight = 10
-  )
+df_long_stage$Cancer <- factor(df_long_stage$Cancer, levels = cancer_order_stage)
 
+df_long_stage$label <- as.character(display_matrix_stage)
+
+#adnotations panel
+p_annot_stage <- ggplot(annot_df_stage, aes(
+    x=1,
+    y=factor(gene, levels=rev(final_genes_stage)),
+    fill=HDAC_family)) +
+  geom_tile() +
+  scale_fill_manual(values=c(
+    "class I"="salmon",
+    "class IIA"="#E69F52",
+    "class IIB"="#BDB600",
+    "class III"="#009E60",
+    "class IV"="#008ECE")) +
+  scale_y_discrete(expand = c(0, 0)) + 
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(y = "HDAC family", fill = "HDAC family") +
+  theme_void() +
+  theme(
+    plot.margin = margin(t = 5.5, r = 0, b = 5.5, l = 5.5)
+    ) +
+  labs(fill = "HDAC family")
 
 
 ```
 
-```         
+## Pheatmap
+
+```{r}
+p_heatmap_stage <- ggplot(df_long_stage,
+                    aes(x=Cancer,
+                        y=factor(gene, levels=rev(final_genes_stage)),
+                        fill=value)) +
+  geom_tile(color = "white", size = 0.2) +
+  geom_text(aes(label=label), size=3, vjust = 0.75) +
+  scale_fill_gradientn(colors=my_colours_stage, limits=c(-0.3,0.3), name = "rho value") + scale_y_discrete(expand = c(0, 0), position = "right") + 
+  scale_x_discrete(expand = c(0, 0)) +
+  theme_minimal(base_size=7) +
+  theme(
+    axis.text.x = element_text(angle=90, vjust=0.5, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = margin(t = 5.5, r = 5.5, b = 5.5, l = 0),
+    legend.position = "right"
+  ) +
+  labs(title="B: Stage ~ mRNA in TCGA tumors")
+
+
+#heatmap + adnotations
+final_plot_stage <- p_annot_stage + p_heatmap_stage +
+  plot_layout(widths = c(1, 20), guides = 'collect') 
+
+final_plot_stage
 ```
