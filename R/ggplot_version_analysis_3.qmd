@@ -25,6 +25,7 @@ library(tidyverse)
 library(ggplot2)
 library(patchwork)
 library(grid)
+library(cowplot)
 ```
 
 ## Data changes
@@ -425,16 +426,139 @@ Geom_text(): significance symbols
 
 Facet_grid(): family grouping
 
-#### Prognosis legend
+#### Family bar and legend
+
+Bar
 
 ```{r}
-prognosis_grob <- grobTree(
-  textGrob("prognosis", x = 0,   y = 1,   hjust = 0, gp = gpar(fontsize = 10, fontface = "bold")),
-  rectGrob(x = 0.02, y = 0.75, width = 0.03, height = 0.1, gp = gpar(fill = "red")),
-  textGrob("worse",  x = 0.08, y = 0.75, hjust = 0, gp = gpar(fontsize = 9)),
-  rectGrob(x = 0.02, y = 0.55, width = 0.03, height = 0.1, gp = gpar(fill = "green")),
-  textGrob("better", x = 0.08, y = 0.55, hjust = 0, gp = gpar(fontsize = 9))
+#first the bar
+make_family_bar <- function(df, gene_order, family_colors) {
+
+  df_unique <- df |> 
+    distinct(gene, family) |> 
+    mutate(gene = factor(gene, levels = gene_order))
+
+  ggplot(df_unique, aes(x = 1, y = gene, fill = family)) +
+    geom_tile() +
+    scale_fill_manual(values = family_colors, name = "HDAC family") +
+    scale_y_discrete(limits = rev(gene_order)) +
+    theme_void() +
+    theme(
+      legend.position = "none",
+      plot.margin = margin(0, 0, 0, 0)
+    )
+}
+
+#generate bar for OS and DFS
+family_bar_os <- make_family_bar(df_os, gene_order, family_colors)
+family_bar_dfs <- make_family_bar(df_dfs, gene_order, family_colors)
+
+
+```
+
+Legend
+
+```{r}
+#then the legend
+#data frame with families
+family_legend_df <- data.frame(
+  family = factor(
+    c("class I", "class IIA", "class IIB", "class III", "class IV"),
+    levels = c("class I", "class IIA", "class IIB", "class III", "class IV")
+  )
 )
+
+#small ggplot
+family_legend_plot <- ggplot(family_legend_df, aes(x = family, y = 1, fill = family)) +
+  geom_tile() +
+  scale_fill_manual(values = family_colors, name = "HDAC family") +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text  = element_text(size = 9)
+  ) +
+  guides(
+    fill = guide_legend(
+      title.position = "top",
+      ncol = 1,
+      keyheight = unit(0.5, "cm"),
+      keywidth  = unit(0.5, "cm")
+    )
+  )
+
+#extract it
+family_legend <- get_legend(family_legend_plot)
+family_legend_wrap <- wrap_elements(full = family_legend)
+
+
+```
+
+#### P-value legend
+
+```{r}
+pval_leg_df <- data.frame(
+  p_shape = factor(
+    c("circle", "square", "triangle"),
+    levels = c("circle", "square", "triangle")
+  )
+)
+
+pval_leg_plot <- ggplot(pval_leg_df, aes(x = 1, y = p_shape, shape = p_shape)) +
+  geom_point(size = 3, color = "black") +
+  scale_shape_manual(
+    values = c(circle = 16, square = 15, triangle = 17),
+    labels = c("<0.05", "<0.01", "<0.001"),
+    name   = "p-value"
+  ) +
+  guides(
+    shape = guide_legend(
+      title.position = "top",
+      label.position = "bottom",
+      nrow = 1,
+      override.aes = list(size = 4)
+    )
+  ) +
+  theme_void() +
+  theme(legend.position = "right")
+
+pval_legend <- cowplot::get_legend(pval_leg_plot)
+pval_legend_wrap <- patchwork::wrap_elements(full = pval_legend)
+
+```
+
+#### HR legend
+
+```{r}
+hr_leg_df <- data.frame(
+  x = 1:3,
+  y = 1,
+  val = seq(-1, 1, length.out = 3)
+)
+
+hr_leg_plot <- ggplot(hr_leg_df, aes(x, y, fill = val)) +
+  geom_tile() +
+  scale_fill_gradient2(
+    low = "green",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    name = "log10(HR)"
+  ) +
+  guides(
+    fill = guide_colorbar(
+      direction = "horizontal",
+      title.position = "top",   # ⬅ TITLE ABOVE
+      title.hjust = 0.5,        # ⬅ CENTER TITLE
+      barwidth = unit(3, "cm"),
+      barheight = unit(0.3, "cm")
+    )
+  ) +
+  theme_void() +
+  theme(legend.position = "right")
+
+hr_legend <- cowplot::get_legend(hr_leg_plot)
+hr_legend_wrap <- patchwork::wrap_elements(full = hr_legend)
 
 ```
 
@@ -444,7 +568,8 @@ prognosis_grob <- grobTree(
 make_hr_heatmap <- function(df, title_text) {
   ggplot(df, aes(Cancer, gene)) +
     geom_tile(aes(fill = log10HR_clip), 
-              color = "white", 
+              color = "white",
+              width = 0.8,
               linewidth = 0.25) +
     #geom_text(aes(label = symbol), #not necessary anymore
     #          size = 2.7, 
@@ -455,7 +580,7 @@ make_hr_heatmap <- function(df, title_text) {
                stroke = 0.3,
                na.rm = TRUE
     ) +
-    
+
     scale_fill_gradient2(        #colour gradient onto plot
       low = "green",
       mid = "white",
@@ -484,12 +609,14 @@ make_hr_heatmap <- function(df, title_text) {
       na.translate = FALSE
     ) +
     
-    facet_grid(family ~ ., 
-               scales = "free_y", 
-               space = "free_y") +
+    #facet_grid(family ~ ., 
+    #           scales = "free_y", 
+    #           space = "free_y") +
     scale_x_discrete(position = "bottom", 
                      drop = FALSE) +
-    scale_y_discrete(position = "right") +
+    scale_y_discrete(
+      limits = rev(levels(df$gene)),
+      position = "right") +
     
     labs(title = title_text) +
     
@@ -501,8 +628,8 @@ make_hr_heatmap <- function(df, title_text) {
       axis.text.y = element_text(size = 9),
       strip.text.y = element_blank(),     # removes "class I" texts
       plot.title = element_text(face = "bold", hjust = 0),
-      legend.position = "right",
       legend.direction = "horizontal",
+      legend.position = "none",
       plot.margin = margin(8, 8, 8, 8)
     ) +
     
@@ -525,19 +652,96 @@ p_dfs <- make_hr_heatmap(df_dfs, "Disease Free Survival (hazard ratio) in TCGA t
 p_os
 p_dfs
 
+```
+
+#### test
+
+```{r}
+plot_os_test <- p_os + hr_legend_wrap +
+  plot_layout(widths = c(2, 1))
+plot_os_test
 
 ```
 
-#### P-value legend
+#### Heatmap + family bar
 
 ```{r}
+plot_os <- family_bar_os + p_os +
+  plot_layout(widths = c(0.1, 1))
 
+plot_dfs <- family_bar_dfs + p_dfs + 
+  plot_layout(widths = c(0.1, 1))
+
+plot_os
+plot_dfs
+
+```
+
+#### Bar + heatmap + legends
+
+```{r}
+spacer <- patchwork::plot_spacer()
+
+right_legends <- (
+  family_legend_wrap / 
+  spacer / 
+  hr_legend_wrap / 
+  spacer / 
+  pval_legend_wrap 
+  ) +
+  plot_layout(heights = c(0.40, 0.01, 0.2, 0.01, 0.2))
+
+final_plot_os <- (
+  family_bar_os | p_os | spacer | right_legends
+  ) +
+  plot_layout(widths = c(0.07, 1.6, 0.06, 0.35))
+
+final_plot_dfs <- (
+  family_bar_dfs | p_dfs | spacer | right_legends
+  ) +
+  plot_layout(widths = c(0.07, 1.6, 0.06, 0.35))
+              
+final_plot_os
+final_plot_dfs 
 ```
 
 #### Side by side
 
 ```{r}
-final_plot <- p_os | p_dfs
+
+
+#final_plot <- (
+#  family_bar_os | p_os | spacer | family_bar_dfs | p_dfs | spacer | right_legends
+#  ) +
+#  plot_layout(widths = c(0.07, 1, 0.03, 0.07, 1, 0.03, 0.15))
+
+os_block <- (family_bar_os | p_os ) + 
+  plot_layout(widths = c(0.05, 1)) 
+dfs_block <- (family_bar_dfs | p_dfs) + 
+  plot_layout(widths = c(0.05, 1)) 
+
+stack <- (
+  os_block /
+  dfs_block
+) +
+  plot_layout(heights = c(1, 1))
+
+final_plot <- (
+  stack | right_legends
+) + 
+  plot_layout(widths = c(1, 0.33))
+
 final_plot
+ 
+
+#ggsave(
+#  "HDAC_OS_DFS_heatmaps.png",
+#  final_plot,
+#  width = 8,
+#  height = 8,
+#  dpi = 300
+#)
+
+
 
 ```
