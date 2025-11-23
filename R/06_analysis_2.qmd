@@ -11,3 +11,156 @@ format:
     embed-resources: true
 editor: visual
 ---
+
+```{r}
+library(tidyverse)
+library(pheatmap)
+library(grid)
+library(broom)
+
+my_data <- read_csv("../data/02_dat_clean.csv")
+
+data_for_stemness <- my_data %>%
+  drop_na(mRNAsi) 
+
+
+data_for_stemness$Cancer <- dplyr::recode(data_for_stemness$Cancer,
+  "blca_tcga_pan_can_atlas_2018"    = "BLCA",
+  "brca_tcga_pan_can_atlas_2018"    = "BRCA",
+  "cesc_tcga_pan_can_atlas_2018"    = "CESC",
+  "coadread_tcga_pan_can_atlas_2018"= "COAD",
+  "esca_tcga_pan_can_atlas_2018"    = "ESCA",
+  "gbm_tcga_pan_can_atlas_2018"     = "GBM",
+  "hnsc_tcga_pan_can_atlas_2018"    = "HNSC",
+  "kirc_tcga_pan_can_atlas_2018"    = "KIRC",
+  "kirp_tcga_pan_can_atlas_2018"    = "KIRP",
+  "lgg_tcga_pan_can_atlas_2018"     = "LGG",
+  "lihc_tcga_pan_can_atlas_2018"    = "LIHC",
+  "luad_tcga_pan_can_atlas_2018"    = "LUAD",
+  "lusc_tcga_pan_can_atlas_2018"    = "LUSC",
+  "ov_tcga_pan_can_atlas_2018"      = "OV",
+  "paad_tcga_pan_can_atlas_2018"    = "PAAD",
+  "prad_tcga_pan_can_atlas_2018"    = "PRAD",
+  "sarc_tcga_pan_can_atlas_2018"    = "SARC",
+  "skcm_tcga_pan_can_atlas_2018"    = "SKCM",
+  "stad_tcga_pan_can_atlas_2018"    = "STAD",
+  "tgct_tcga_pan_can_atlas_2018"    = "TGCT",
+  "thca_tcga_pan_can_atlas_2018"    = "THCA",
+  "ucec_tcga_pan_can_atlas_2018"    = "UCEC"
+)
+
+cancers_use_stemness <- unique(data_for_stemness$Cancer)
+
+
+genes_to_test_stemness <- c(
+  "HDAC4", "HDAC5", "HDAC9", "HDAC7", # class IIA
+  "HDAC10", "HDAC6",                  # class IIB
+  "SIRT5", "SIRT7", "SIRT6", "SIRT3", "SIRT4", "SIRT2", "SIRT1", # class III
+  "HDAC11",                           # class IV
+  "HDAC2", "HDAC3", "HDAC8", "HDAC1"  # class I
+)
+
+
+s_correlation_stemness <- data_for_stemness %>%
+
+  pivot_longer(
+    cols = any_of(genes_to_test_stemness),
+    names_to = "gene",
+    values_to = "expression"
+  ) %>%
+
+  group_by(Cancer, gene) %>%
+  # correlation
+  summarize(
+    summary_test = broom::tidy(cor.test(expression, mRNAsi, method = "spearman", exact = FALSE)),
+    .groups = "drop"
+  ) %>%
+
+  unnest(summary_test) %>%
+  select(Cancer, gene, rho = estimate, p.value)
+
+
+# rho
+matrix_rho_stemness <- s_correlation_stemness %>%
+  select(gene, Cancer, rho) %>%
+  pivot_wider(names_from = Cancer, values_from = rho) %>%
+  column_to_rownames("gene") %>%
+  as.matrix()
+
+# p-value 
+matrix_p_stemness <- s_correlation_stemness %>%
+  select(gene, Cancer, p.value) %>%
+  pivot_wider(names_from = Cancer, values_from = p.value) %>%
+  column_to_rownames("gene") %>%
+  as.matrix()
+
+# Sorting the genes
+final_genes <- genes_to_test_stemness[genes_to_test_stemness %in% rownames(matrix_rho_stemness)]
+matrix_rho_stemness <- matrix_rho_stemness[final_genes, , drop=FALSE]
+matrix_p_stemness <- matrix_p_stemness[final_genes, , drop=FALSE]
+
+# NA = 0
+matrix_rho_plot_stemness <- matrix_rho_stemness
+matrix_rho_plot_stemness[is.na(matrix_rho_plot_stemness)] <- 0
+
+# BH correction for dots
+matrix_p_dot_stemness <- matrix(p.adjust(as.vector(matrix_p_stemness), method = "BH"),
+                                ncol = ncol(matrix_p_stemness))
+
+display_matrix_stemness <- ifelse(matrix_p_dot_stemness < 0.001, "■",
+                           ifelse(matrix_p_dot_stemness < 0.01,  "▲",
+                           ifelse(matrix_p_dot_stemness < 0.05,  "•", "")))
+
+#adnotations
+gene_classes <- c(
+  HDAC3="class I", HDAC2="class I", HDAC1="class I", HDAC8="class I",
+  HDAC7="class IIA", HDAC9="class IIA", HDAC5="class IIA", HDAC4="class IIA",
+  SIRT1="class III", SIRT7="class III", SIRT6="class III", SIRT4="class III",
+  SIRT3="class III", SIRT2="class III", SIRT5="class III",
+  HDAC6="class IIB", HDAC10="class IIB", HDAC11="class IV"
+)
+
+annot_row_stemness <- data.frame(
+  HDAC_family = as.character(gene_classes[rownames(matrix_rho_plot_stemness)]),
+  row.names = rownames(matrix_rho_plot_stemness),
+  stringsAsFactors = FALSE
+)
+annot_row_stemness$HDAC_family <- factor(annot_row_stemness$HDAC_family, 
+                                         levels = c("class I", "class IIA", "class IIB", "class III", "class IV"))
+
+# colours
+ann_colors = list(
+  HDAC_family = c(
+    "class I" = "salmon",   
+    "class IIA" = "#E69F52", 
+    "class IIB" = "#BDB600", 
+    "class III" = "#009E60", 
+    "class IV" = "#008ECE"))
+
+# heatmap colours
+my_colours <- colorRampPalette(c("blue", "white", "red"))(101)
+breaks_blue <- seq(-0.7, -0.01, length.out = 51) 
+breaks_red <- seq(0.01, 0.8, length.out = 51)
+my_breaks_stemness <- c(breaks_blue, breaks_red)
+
+
+pheatmap(
+  matrix_rho_plot_stemness,
+  color = my_colours,
+  breaks = my_breaks_stemness, 
+  na_col = "grey90",
+  
+  cluster_rows = FALSE,  
+  cluster_cols = FALSE,
+  
+  annotation_row = annot_row_stemness,
+  annotation_colors = ann_colors,
+  display_numbers = display_matrix_stemness,
+  fontsize_number = 6,
+  
+  main = "mRNAsi vs HDAC expression",
+
+  cellwidth = 10, 
+  cellheight = 8
+)
+```
