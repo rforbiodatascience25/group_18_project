@@ -1,0 +1,747 @@
+---
+title: "07_analysis_3"
+author:
+  - "Kacper Maciejewski (s243548)"
+  - "Sofia Russo (252054)"
+  - "Aleksandra Wozniak (253713)"
+  - "Gabriel Loayza (252608)"
+  - "Dagmar Geevers (252256)"
+format:
+  html:
+    embed-resources: true
+editor: visual
+---
+
+## Load data
+
+```{r}
+dat_aug <- read.csv("../data/03_dat_aug.csv")
+```
+
+## Load libraries
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(grid)
+library(cowplot)
+```
+
+## Data changes
+
+#### Define list of genes and correct names
+
+```{r}
+# define list of genes
+genes <- c(paste0("HDAC", 1:11), paste0("SIRT", 1:7))
+
+#first fix names cancers
+dat_aug$Cancer[dat_aug$Cancer == "OV_T"] <- "OV"
+dat_aug$Cancer[dat_aug$Cancer == "GBM_"] <- "GBM"
+dat_aug$Cancer[dat_aug$Cancer == "LGG_"] <- "LGG"
+
+genes
+```
+
+#### Fix OS and DFS status to numerical values
+
+```{r}
+#Fix OS and DFS status to numeric 0/1
+#make sure the cols are characters
+dat_aug$OS_STATUS  <- as.character(dat_aug$OS_STATUS)
+dat_aug$DFS_STATUS <- as.character(dat_aug$DFS_STATUS)
+
+#convert OS to 0/1
+dat_aug$OS_STATUS <- case_when(
+  dat_aug$OS_STATUS == "1:DECEASED" ~ 1,
+  dat_aug$OS_STATUS == "0:LIVING"   ~ 0,
+  TRUE ~ NA_real_
+)
+#convert DFS to 0/1
+dat_aug$DFS_STATUS <- case_when(
+  dat_aug$DFS_STATUS == "1:Recurred/Progressed" ~ 1,
+  dat_aug$DFS_STATUS == "0:DiseaseFree"         ~ 0,
+  TRUE ~ NA_real_
+)
+
+```
+
+#### Transform data
+
+```{r}
+# transform gene expression
+dat_aug <- dat_aug |>
+  group_by(Cancer) |>
+  mutate(across(all_of(genes), scale)) |>
+  ungroup()
+#dat_aug <- dat_aug |>
+#  mutate(across(all_of(genes), function(x) log2(x + 1)))
+```
+
+## Create matrices
+
+First split by cancers: rows for the genes and columns for the cancer types
+
+Then create empty matrices to later be filled with Cox function values
+
+#### Create empty matrices
+
+```{r}
+#split by cancer 
+split_cancers <- split(dat_aug, dat_aug$Cancer)
+
+#OS
+mat_hr_os <- matrix(
+  NA_real_,
+  nrow = length(genes),
+  ncol = length(split_cancers),
+  dimnames = list(genes, names(split_cancers))
+)
+mat_pval_os <- mat_hr_os
+
+#DFS
+mat_hr_dfs <- matrix(
+  NA_real_,
+  nrow = length(genes),
+  ncol = length(split_cancers),
+  dimnames = list(genes, names(split_cancers))
+)
+mat_pval_dfs <- mat_hr_dfs
+
+#check
+dim(mat_hr_os)
+dim(mat_pval_os)
+dim(mat_hr_dfs)
+dim(mat_pval_dfs)
+#should be 18x22
+```
+
+#### Define Cox model
+
+The cox hazard model is a statistical technique used for survival analysis. It estimates the hazard ratio HR.
+
+Function to not have to repeat for every combination of genes and cancer types separately
+
+```{r}
+# create cox_gene function to not have to copy for each gene etc.
+cox_single_gene <- function(cancer_data, time_col, status_col, gene) {
+  
+  d <- cancer_data[, c(time_col, status_col, gene)] #select necessary col
+  d <- d[complete.cases(d), ] #remove rows with missing data
+  
+  if (nrow(d) < 5) {
+    return(list(log10HR = NA, pvalue = NA)) #too few samples to fit Cox model
+  }
+  
+  med <- median(d[[gene]], na.rm = TRUE)
+d$expr_group <- ifelse(d[[gene]] > med, 1, 0)
+
+fit <- try(coxph(Surv(d[[time_col]], d[[status_col]]) ~ d$expr_group), silent = TRUE)
+  
+  if (inherits(fit, "try-error")) {
+    return(list(log10HR = NA, pvalue = NA))
+  }
+  
+  #HR and p-value
+  s <- summary(fit)
+  #if summary fails, return NA
+  if (is.null(s$coefficients)) {
+    return(list(log10HR = NA, pvalue = NA))
+  }
+  
+  hr <- s$coefficients[,"exp(coef)"]
+  pval <- s$coefficients[, "Pr(>|z|)"]
+  
+  list(log10HR = log10(hr), pvalue = pval)
+  
+}
+```
+
+#### Fill matrices
+
+```{r}
+# OS
+for (cn in names(split_cancers)) { 
+  dat_c <- split_cancers[[cn]] #data per cancer
+  
+  for (g in genes) {
+    res <- cox_single_gene(
+      cancer_data = dat_c,
+      time_col = "OS_MONTHS",
+      status_col = "OS_STATUS",
+      gene = g
+    )
+    mat_hr_os[g, cn] <- res$log10HR
+    mat_pval_os[g, cn] <- res$pvalue
+  }
+}
+
+#DFS
+for (cn in names(split_cancers)) {
+  
+  dat_c <- split_cancers[[cn]]   # data for this cancer
+  
+  for (g in genes) {
+    
+    res <- cox_single_gene(
+      cancer_data = dat_c,
+      time_col = "DFS_MONTHS",
+      status_col = "DFS_STATUS",
+      gene = g
+    )
+    
+    mat_hr_dfs[g, cn]   <- res$log10HR
+    mat_pval_dfs[g, cn] <- res$pvalue
+  }
+}
+
+```
+
+#### Create significance symbol matrix
+
+For the p-values
+
+```{r}
+# converting numerical p-values into shape symbols: triangle, square, dot or none
+
+#OS
+symbol_mat_os <- ifelse(
+  mat_pval_os < 0.001, "\u25B2",   # triangle ▲
+  ifelse(
+    mat_pval_os < 0.01, "\u25A0",  # square ■
+    ifelse(
+      mat_pval_os < 0.05, "\u2022", # dot •
+      ""
+    )
+  )
+)
+
+#DFS
+symbol_mat_dfs <- ifelse(
+  mat_pval_dfs < 0.001, "\u25B2",
+  ifelse(
+    mat_pval_dfs < 0.01,  "\u25A0",
+    ifelse(
+      mat_pval_dfs < 0.05, "\u2022",
+      ""
+    )
+  )
+)
+
+#check dims: 18x22? 
+dim(symbol_mat_os)
+dim(symbol_mat_dfs)
+```
+
+#### Fix names of cancers
+
+```{r}
+fix_names <- function(mat) {
+  colnames(mat) <- gsub("OV_T", "OV", colnames(mat))
+  colnames(mat) <- gsub("GBM_", "GBM", colnames(mat))
+  colnames(mat) <- gsub("LGG_", "LGG", colnames(mat))
+  mat
+}
+
+mat_hr_os      <- fix_names(mat_hr_os)
+mat_pval_os    <- fix_names(mat_pval_os)
+symbol_mat_os  <- fix_names(symbol_mat_os)
+
+mat_hr_dfs     <- fix_names(mat_hr_dfs)
+mat_pval_dfs   <- fix_names(mat_pval_dfs)
+symbol_mat_dfs <- fix_names(symbol_mat_dfs)
+```
+
+#### Fix cancer and gene orders by classes
+
+```{r}
+# by class
+cancer_order <- c(
+  "PRAD","TGCT","THCA","LIHC","COAD","OV","LUSC","GBM",
+  "BRCA","LUAD","SARC","ESCA","SKCM","STAD","BLCA","HNSC",
+  "PAAD","KIRP","UCEC","LGG","KIRC"
+)
+
+#OS
+mat_hr_os   <- mat_hr_os[, cancer_order]
+mat_pval_os <- mat_pval_os[, cancer_order]
+symbol_mat_os  <- symbol_mat_os[, cancer_order]
+#DFS
+mat_hr_dfs   <- mat_hr_dfs[, cancer_order]
+mat_pval_dfs <- mat_pval_dfs[, cancer_order]
+symbol_mat_dfs  <- symbol_mat_dfs[, cancer_order]
+
+
+#Fix gene order (rows)
+gene_order <- c(
+  "HDAC10","HDAC6","HDAC1","HDAC8","HDAC3","HDAC2",
+  "SIRT7","SIRT3","SIRT6","SIRT1","SIRT2","SIRT5","SIRT4",
+  "HDAC7","HDAC4","HDAC9","HDAC5","HDAC11"
+)
+
+mat_hr_os   <- mat_hr_os[gene_order, ]
+mat_pval_os <- mat_pval_os[gene_order, ]
+symbol_mat_os  <- symbol_mat_os[gene_order, ]
+
+mat_hr_dfs   <- mat_hr_dfs[gene_order, ]
+mat_pval_dfs <- mat_pval_dfs[gene_order, ]
+symbol_mat_dfs  <- symbol_mat_dfs[gene_order, ]
+
+#check order
+rownames(mat_hr_os)
+colnames(mat_hr_os)
+
+```
+
+#### Drop NA columns
+
+```{r}
+drop_all_na_cols <- function(mat) {
+  keep <- colSums(is.na(mat)) < nrow(mat)
+  mat[, keep, drop = FALSE]
+}
+
+mat_hr_os     <- drop_all_na_cols(mat_hr_os)
+mat_pval_os   <- drop_all_na_cols(mat_pval_os)
+symbol_mat_os <- drop_all_na_cols(symbol_mat_os)
+
+mat_hr_dfs     <- drop_all_na_cols(mat_hr_dfs)
+mat_pval_dfs   <- drop_all_na_cols(mat_pval_dfs)
+symbol_mat_dfs <- drop_all_na_cols(symbol_mat_dfs)
+
+```
+
+## Preparations: building heatmap
+
+#### Family information and colors
+
+```{r}
+gene_order <- rownames(mat_hr_os)
+cancer_order <- colnames(mat_hr_os)
+
+# genes into families
+family_df <- tibble(
+  gene = gene_order,
+  family = case_when(
+    gene %in% c("HDAC1","HDAC2","HDAC3","HDAC8") ~ "class I",
+    gene %in% c("HDAC4","HDAC5","HDAC7","HDAC9") ~ "class IIA",
+    gene %in% c("HDAC6","HDAC10")                ~ "class IIB",
+    gene %in% c("HDAC11")                        ~ "class IV",
+    gene %in% c("SIRT1","SIRT2","SIRT3","SIRT4","SIRT5","SIRT6","SIRT7") ~ "class III"
+  )
+)
+
+# colourcode families
+family_colors <- c(
+  "class I"  = "#FF9999",
+  "class IIA"= "#FFCC66",
+  "class IIB"= "#99CC00",
+  "class III"= "#33CCCC",
+  "class IV" = "#3366FF"
+)
+
+```
+
+#### Matrix into tidy long format for ggplot
+
+```{r}
+mat_to_long <- function(mat_hr, mat_p, mat_sym, family_df,
+                        gene_order, cancer_order) {
+  
+  df_hr <- mat_hr |>
+    as.data.frame() |>
+    rownames_to_column("gene") |>
+    pivot_longer(-gene, names_to = "Cancer", values_to = "log10HR")
+  
+  df_p <- mat_p |>
+    as.data.frame() |>
+    rownames_to_column("gene") |>
+    pivot_longer(-gene, names_to = "Cancer", values_to = "pval")
+  
+  df_sym <- mat_sym |>
+    as.data.frame() |>
+    rownames_to_column("gene") |>
+    pivot_longer(-gene, names_to = "Cancer", values_to = "symbol")
+  
+  df <- df_hr |>
+    left_join(df_p, by = c("gene","Cancer")) |>
+    left_join(df_sym, by = c("gene","Cancer")) |>
+    left_join(family_df, by = "gene")
+  
+  df$gene   <- factor(df$gene, levels = gene_order)
+  df$Cancer <- factor(df$Cancer, levels = cancer_order)
+  
+  df
+}
+
+```
+
+#### Tidy dfs for OS and DFS
+
+```{r}
+df_os  <- mat_to_long(mat_hr_os,  mat_pval_os,  symbol_mat_os,
+                      family_df, gene_order, cancer_order)
+df_os <- df_os |>
+  mutate(log10HR_clip = pmax(pmin(log10HR, 1), -1))|>
+  mutate(Cancer = factor(Cancer, levels = cancer_order))
+  
+df_os <- df_os |>  #for the legends
+  mutate(p_shape = case_when(
+      pval < 0.001 ~ "triangle",
+      pval < 0.01  ~ "square",
+      pval < 0.05  ~ "circle",
+      TRUE ~ NA_character_
+      ),
+    p_shape = factor(p_shape, levels = c("circle", "square", "triangle")) 
+  ) 
+
+#DFS
+df_dfs <- mat_to_long(mat_hr_dfs, mat_pval_dfs, symbol_mat_dfs,
+                      family_df, gene_order, cancer_order)
+
+df_dfs <- df_dfs |>
+  mutate(log10HR_clip = pmax(pmin(log10HR, 1), -1)) |>
+  filter(!Cancer %in% c("GBM", "SKCM")) |># those cancers NA & don't want those in plot 
+  droplevels() |>
+  mutate(Cancer = factor(Cancer, 
+                         levels = cancer_order[cancer_order %in% Cancer]))
+  
+df_dfs <- df_dfs |>  #for the legends
+  mutate(p_shape = case_when(
+      pval < 0.001 ~ "triangle",
+      pval < 0.01  ~ "square",
+      pval < 0.05  ~ "circle",
+      TRUE ~ NA_character_
+      ),
+    p_shape = factor(p_shape, levels = c("circle", "square", "triangle"))  
+  ) 
+```
+
+## Building ggplot heatmap
+
+Geom_tile(): colored HR blocks
+
+Geom_text(): significance symbols
+
+Facet_grid(): family grouping
+
+#### Family bar and legend
+
+Bar
+
+```{r}
+#first the bar
+make_family_bar <- function(df, gene_order, family_colors) {
+
+  df_unique <- df |> 
+    distinct(gene, family) |> 
+    mutate(gene = factor(gene, levels = gene_order))
+
+  ggplot(df_unique, aes(x = 1, y = gene, fill = family)) +
+    geom_tile() +
+    scale_fill_manual(values = family_colors, name = "HDAC family") +
+    scale_y_discrete(limits = rev(gene_order)) +
+    theme_void() +
+    theme(
+      legend.position = "none",
+      plot.margin = margin(0, 0, 0, 0)
+    )
+}
+
+#generate bar for OS and DFS
+family_bar_os <- make_family_bar(df_os, gene_order, family_colors)
+family_bar_dfs <- make_family_bar(df_dfs, gene_order, family_colors)
+
+
+```
+
+Legend
+
+```{r}
+#then the legend
+#data frame with families
+family_legend_df <- data.frame(
+  family = factor(
+    c("class I", "class IIA", "class IIB", "class III", "class IV"),
+    levels = c("class I", "class IIA", "class IIB", "class III", "class IV")
+  )
+)
+
+#small ggplot
+family_legend_plot <- ggplot(family_legend_df, aes(x = family, y = 1, fill = family)) +
+  geom_tile() +
+  scale_fill_manual(values = family_colors, name = "HDAC family") +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text  = element_text(size = 9)
+  ) +
+  guides(
+    fill = guide_legend(
+      title.position = "top",
+      ncol = 1,
+      keyheight = unit(0.5, "cm"),
+      keywidth  = unit(0.5, "cm")
+    )
+  )
+
+#extract it
+family_legend <- get_legend(family_legend_plot)
+family_legend_wrap <- wrap_elements(full = family_legend)
+
+
+```
+
+#### P-value legend
+
+```{r}
+pval_leg_df <- data.frame(
+  p_shape = factor(
+    c("circle", "square", "triangle"),
+    levels = c("circle", "square", "triangle")
+  )
+)
+
+pval_leg_plot <- ggplot(pval_leg_df, aes(x = 1, y = p_shape, shape = p_shape)) +
+  geom_point(size = 3, color = "black") +
+  scale_shape_manual(
+    values = c(circle = 16, square = 15, triangle = 17),
+    labels = c("<0.05", "<0.01", "<0.001"),
+    name   = "p-value"
+  ) +
+  guides(
+    shape = guide_legend(
+      title.position = "top",
+      label.position = "bottom",
+      nrow = 1,
+      override.aes = list(size = 4)
+    )
+  ) +
+  theme_void() +
+  theme(legend.position = "right")
+
+pval_legend <- cowplot::get_legend(pval_leg_plot)
+pval_legend_wrap <- patchwork::wrap_elements(full = pval_legend)
+
+```
+
+#### HR legend
+
+```{r}
+hr_leg_df <- data.frame(
+  x = 1:3,
+  y = 1,
+  val = seq(-1, 1, length.out = 3)
+)
+
+hr_leg_plot <- ggplot(hr_leg_df, aes(x, y, fill = val)) +
+  geom_tile() +
+  scale_fill_gradient2(
+    low = "green",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    name = "log10(HR)"
+  ) +
+  guides(
+    fill = guide_colorbar(
+      direction = "horizontal",
+      title.position = "top",   # ⬅ TITLE ABOVE
+      title.hjust = 0.5,        # ⬅ CENTER TITLE
+      barwidth = unit(3, "cm"),
+      barheight = unit(0.3, "cm")
+    )
+  ) +
+  theme_void() +
+  theme(legend.position = "right")
+
+hr_legend <- cowplot::get_legend(hr_leg_plot)
+hr_legend_wrap <- patchwork::wrap_elements(full = hr_legend)
+
+```
+
+#### Ggplot heatmap
+
+```{r}
+make_hr_heatmap <- function(df, title_text) {
+  ggplot(df, aes(Cancer, gene)) +
+    geom_tile(aes(fill = log10HR_clip), 
+              color = "white",
+              width = 0.8,
+              linewidth = 0.25) +
+    #geom_text(aes(label = symbol), #not necessary anymore
+    #          size = 2.7, 
+    #          na.rm = TRUE) +
+    geom_point(aes(shape = factor(p_shape)), #for shapes onto the plot
+               size = 2.0,
+               color = "black",
+               stroke = 0.3,
+               na.rm = TRUE
+    ) +
+
+    scale_fill_gradient2(        #colour gradient onto plot
+      low = "green",
+      mid = "white",
+      high = "red",
+      midpoint = 0,
+      name = "log10(HR)"
+    ) +
+    
+    scale_shape_manual(          #visual of symbols as legend
+      name = "p-value",
+      values = c("circle" = 16, 
+                 "square" = 15, 
+                 "triangle" = 17),
+      labels = c("circle"="<0.05", 
+                 "square"="<0.01", 
+                 "triangle"="<0.001"),
+      guide = guide_legend(
+        title.position = "top",
+        label.position = "bottom",
+        label.hjust = 0.5,
+        nrow = 1,
+        keywidth = unit(0.8, "cm"),
+        keyheight = unit(0.4, "cm"),
+        override.aes = list(size = 3)),
+      drop = TRUE,
+      na.translate = FALSE
+    ) +
+    
+    #facet_grid(family ~ ., 
+    #           scales = "free_y", 
+    #           space = "free_y") +
+    scale_x_discrete(position = "bottom", 
+                     drop = FALSE) +
+    scale_y_discrete(
+      limits = rev(levels(df$gene)),
+      position = "right") +
+    
+    labs(title = title_text) +
+    
+    theme_minimal(base_size = 10) +
+    theme(
+      axis.title = element_blank(),
+      panel.grid = element_blank(),
+      axis.text.x = element_text(angle = 90, hjust = 0, vjust = 1),
+      axis.text.y = element_text(size = 9),
+      strip.text.y = element_blank(),     # removes "class I" texts
+      plot.title = element_text(face = "bold", hjust = 0),
+      legend.direction = "horizontal",
+      legend.position = "none",
+      plot.margin = margin(8, 8, 8, 8)
+    ) +
+    
+    guides(
+      fill = guide_colorbar(
+        title.position = "top",
+        barwidth = unit(3, "cm"),
+        barheight = unit(0.25, "cm")
+      )
+    )
+}
+
+```
+
+#### Panels A for OS and B for DFS
+
+```{r}
+p_os  <- make_hr_heatmap(df_os,  "Overall survival (hazard ratio) in TCGA tumors")
+p_dfs <- make_hr_heatmap(df_dfs, "Disease Free Survival (hazard ratio) in TCGA tumors")
+p_os
+p_dfs
+
+```
+
+#### test
+
+```{r}
+plot_os_test <- p_os + hr_legend_wrap +
+  plot_layout(widths = c(2, 1))
+plot_os_test
+
+```
+
+#### Heatmap + family bar
+
+```{r}
+plot_os <- family_bar_os + p_os +
+  plot_layout(widths = c(0.1, 1))
+
+plot_dfs <- family_bar_dfs + p_dfs + 
+  plot_layout(widths = c(0.1, 1))
+
+plot_os
+plot_dfs
+
+```
+
+#### Bar + heatmap + legends
+
+```{r}
+spacer <- patchwork::plot_spacer()
+
+right_legends <- (
+  family_legend_wrap / 
+  spacer / 
+  hr_legend_wrap / 
+  spacer / 
+  pval_legend_wrap 
+  ) +
+  plot_layout(heights = c(0.40, 0.01, 0.2, 0.01, 0.2))
+
+final_plot_os <- (
+  family_bar_os | p_os | spacer | right_legends
+  ) +
+  plot_layout(widths = c(0.07, 1.6, 0.06, 0.35))
+
+final_plot_dfs <- (
+  family_bar_dfs | p_dfs | spacer | right_legends
+  ) +
+  plot_layout(widths = c(0.07, 1.6, 0.06, 0.35))
+              
+final_plot_os
+final_plot_dfs 
+```
+
+#### Side by side
+
+```{r}
+
+
+#final_plot <- (
+#  family_bar_os | p_os | spacer | family_bar_dfs | p_dfs | spacer | right_legends
+#  ) +
+#  plot_layout(widths = c(0.07, 1, 0.03, 0.07, 1, 0.03, 0.15))
+
+os_block <- (family_bar_os | p_os ) + 
+  plot_layout(widths = c(0.05, 1)) 
+dfs_block <- (family_bar_dfs | p_dfs) + 
+  plot_layout(widths = c(0.05, 1)) 
+
+stack <- (
+  os_block /
+  dfs_block
+) +
+  plot_layout(heights = c(1, 1))
+
+final_plot <- (
+  stack | right_legends
+) + 
+  plot_layout(widths = c(1, 0.33))
+
+final_plot
+ 
+
+#ggsave(
+#  "HDAC_OS_DFS_heatmaps.png",
+#  final_plot,
+#  width = 8,
+#  height = 8,
+#  dpi = 300
+#)
+
+
+
+```
