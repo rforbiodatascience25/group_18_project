@@ -493,14 +493,6 @@ make_hr_heatmap <- function(df, title_text) {
     
     labs(title = title_text) +
     
-    annotation_custom(
-      prognosis_grob,
-      xmin = length(unique(df$Cancer)) + 0.7,   # move to right side
-      xmax = length(unique(df$Cancer)) + 2.2,
-      ymin = -2,
-      ymax = 5
-    ) +
-    
     theme_minimal(base_size = 10) +
     theme(
       axis.title = element_blank(),
@@ -532,6 +524,7 @@ p_os  <- make_hr_heatmap(df_os,  "Overall survival (hazard ratio) in TCGA tumors
 p_dfs <- make_hr_heatmap(df_dfs, "Disease Free Survival (hazard ratio) in TCGA tumors")
 p_os
 p_dfs
+
 
 ```
 
