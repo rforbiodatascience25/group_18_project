@@ -11,3 +11,127 @@ format:
     embed-resources: true
 editor: visual
 ---
+
+# Describe Data
+
+## Load data from previous step
+
+```{r}
+dat <- read.csv("../data/03_dat_aug.csv")
+```
+
+## Number of patients per TCGA cohort
+
+```{r}
+dat |> ggplot(aes(x = Cancer)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Number of Patients per Cancer Type",
+       x = "Cancer Type", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1))
+```
+
+## Tumor grade distribution
+
+```{r}
+dat |> drop_na(Grade_num) |> 
+  ggplot(aes(x = Grade_num)) +
+  geom_bar(fill = "darkorange") +
+  labs(title = "Tumor Grade Distribution",
+       x = "Tumor Grade",
+       y = "Number of Patients") +
+  theme_minimal()
+
+```
+
+```{r}
+dat |> filter(!is.na(Grade_num))|> 
+  ggplot(aes(x = Grade_num)) +
+  geom_bar(fill = "darkorange") +
+  facet_wrap(~ Cancer, scales = "free_y") +
+  labs(title = "Tumor Grade Distribution by Cancer Type",
+       x = "Grade",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1))
+
+```
+
+## HDAC and SIRT gene expression
+
+```{r}
+dat |> pivot_longer(cols = starts_with("HDAC") | starts_with("SIRT"),
+                    names_to = "Gene",
+                    values_to = "Expression") |>
+  filter(!is.na(Expression) & Expression >= 0) |>
+  mutate(Expression_log = log10(Expression + 1)) |>
+  ggplot(aes(x = Gene,
+             y = Expression_log)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(title = "HDAC and SIRT Gene Expression (log10 + 1)",
+       x = "Gene",
+       y = "log10(Expression Level + 1)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1))
+```
+
+## Stemness index (mRNAsi)
+
+```{r}
+dat |> filter(!is.na(mRNAsi)) |> 
+  ggplot(aes(x = mRNAsi)) +
+  geom_histogram(binwidth = 0.05, fill = "mediumseagreen", color = "white") +
+  labs(title = "Stemness Index (mRNAsi)",
+       x = "mRNAsi",
+       y = "Number of Patients") +
+  theme_minimal()
+  
+```
+
+```{r}
+dat |> 
+  filter(!is.na(mRNAsi), !is.na(Grade_num)) |> 
+  mutate(Grade_group = case_when(
+    Grade_num <= 1 ~ "Low",
+    Grade_num == 2 ~ "Mid",
+    Grade_num >= 3 ~ "High"
+  )) |> 
+  ggplot(aes(x = mRNAsi, fill = Grade_group)) +
+  geom_density() +
+  scale_fill_manual(values = c("Low" = "skyblue", "Mid" = "gold", "High" = "tomato")) +
+  labs(title = "Stemness Index (mRNAsi) by Tumor Grade Group",
+       x = "mRNAsi", y = "Count", fill = "Grade Group") +
+  theme_minimal()
+
+
+
+
+```
+
+```{r}
+dat |> 
+  mutate(Grade_group = case_when(
+    Grade %in% c("G1", "Low Grade") ~ "Low",
+    Grade %in% c("G2") ~ "Mid",
+    Grade %in% c("G3", "G4", "High Grade") ~ "High",
+    TRUE ~ NA_character_
+  ),
+  Grade_group = factor(Grade_group, levels = c("High", "Mid", "Low"))) |> 
+  drop_na(mRNAsi, Grade_group) |> 
+  ggplot(aes(x = mRNAsi, fill = Grade_group, color = Grade_group)) +
+  geom_histogram(position = "identity", bins = 30, alpha = 0.5) +
+  geom_density(aes(y = ..count..), size = 1.1) +
+  scale_fill_manual(values = c("Low" = "#56B4E9", "Mid" = "#F0E442", "High" = "#E69F00")) +
+  scale_color_manual(values = c("Low" = "#56B4E9", "Mid" = "#F0E442", "High" = "#E69F00")) +
+  labs(title = "Stemness Index (mRNAsi) by Tumor Grade Group",
+       x = "mRNAsi",
+       y = "Count",
+       fill = "Grade Group",
+       color = "Grade Group") +
+  theme_minimal()
+
+
+```
