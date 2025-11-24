@@ -1,5 +1,5 @@
 ---
-title: "Group 18 Final Project: R for Bio Data Science course"
+title: "Group 18: R for Bio Data Science final project"
 author:
   - "Kacper Maciejewski (s243548)"
   - "Sofia Russo (252054)"
@@ -9,12 +9,55 @@ author:
 format: revealjs
 ---
 
-## slide 1
+## Introduction
+### Epigenetic modifiers HDAC
 
 - Turn off alarm
-- Get out of bed
 
-## slide 2
+img from the original articl
+
+## Introduction
+### Project aim
+
+*PROJECT AIM:* ddd
+
+**This project recrates the visualizations derived at ... study.**
+
+## Methods
+### Data
 
 - Get in bed
-- Count sheep
+
+img with cohort size overview
+
+## Methods
+### Analysis
+
+- test
+
+## Results
+### HDAC family correlates with tumor grade and stage
+
+img stage
+img grade
+
+## Results
+### HDAC family expression is associted with survival
+
+img os
+img dfs
+
+## Results
+### HDAC family expression relates to cancer stemness
+
+img mrnasi
+
+## Discussion
+### Inverse association with cancer stemness and immunogenicity
+
+- test
+
+## Discussion
+### Technical project overview
+
+packages etc????
