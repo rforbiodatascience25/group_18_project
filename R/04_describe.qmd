@@ -23,19 +23,24 @@ dat <- read.csv("../data/03_dat_aug.csv")
 ## Number of patients per TCGA cohort
 
 ```{r}
-dat |> ggplot(aes(x = Cancer)) +
+p <- dat |> ggplot(aes(x = fct_infreq(Cancer))) +
   geom_bar(fill = "steelblue") +
   labs(title = "Number of Patients per Cancer Type",
        x = "Cancer Type", y = "Count") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45,
-                                   hjust = 1))
+  theme(axis.text.x = element_text(angle = 0,
+                                   hjust = 1)) +
+  coord_flip()
+
+p
+
+ggsave("../results/04_key_plot_tcga_cohort.png", plot = p, width = 8, height = 6, dpi = 300)
 ```
 
 ## Tumor grade distribution
 
 ```{r}
-dat |> drop_na(Grade_num) |> 
+p <- dat |> drop_na(Grade_num) |> 
   ggplot(aes(x = Grade_num)) +
   geom_bar(fill = "darkorange") +
   labs(title = "Tumor Grade Distribution",
@@ -43,10 +48,14 @@ dat |> drop_na(Grade_num) |>
        y = "Number of Patients") +
   theme_minimal()
 
+p
+
+ggsave("../results/04_key_plot_grade_distribution.png", plot = p, width = 8, height = 6, dpi = 300)
+
 ```
 
 ```{r}
-dat |> filter(!is.na(Grade_num))|> 
+p <- dat |> filter(!is.na(Grade_num))|> 
   ggplot(aes(x = Grade_num)) +
   geom_bar(fill = "darkorange") +
   facet_wrap(~ Cancer, scales = "free_y") +
@@ -54,15 +63,18 @@ dat |> filter(!is.na(Grade_num))|>
        x = "Grade",
        y = "Count") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45,
+  theme(axis.text.x = element_text(angle = 0,
                                    hjust = 1))
 
+p
+
+ggsave("../results/04_key_plot_grade_by_type.png", plot = p, width = 8, height = 6, dpi = 300)
 ```
 
 ## HDAC and SIRT gene expression
 
 ```{r}
-dat |> pivot_longer(cols = starts_with("HDAC") | starts_with("SIRT"),
+p <- dat |> pivot_longer(cols = starts_with("HDAC") | starts_with("SIRT"),
                     names_to = "Gene",
                     values_to = "Expression") |>
   filter(!is.na(Expression) & Expression >= 0) |>
@@ -76,23 +88,31 @@ dat |> pivot_longer(cols = starts_with("HDAC") | starts_with("SIRT"),
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45,
                                    hjust = 1))
+
+p
+
+ggsave("../results/04_key_plot_gene_expression.png", plot = p, width = 8, height = 6, dpi = 300)
 ```
 
 ## Stemness index (mRNAsi)
 
 ```{r}
-dat |> filter(!is.na(mRNAsi)) |> 
+p <- dat |> filter(!is.na(mRNAsi)) |> 
   ggplot(aes(x = mRNAsi)) +
   geom_histogram(binwidth = 0.05, fill = "mediumseagreen", color = "white") +
   labs(title = "Stemness Index (mRNAsi)",
        x = "mRNAsi",
        y = "Number of Patients") +
   theme_minimal()
+
+p
   
+ggsave("../results/04_key_plot_stemness.png", plot = p, width = 8, height = 6, dpi = 300)
+
 ```
 
 ```{r}
-dat |> 
+p <- dat |> 
   filter(!is.na(mRNAsi), !is.na(Grade_num)) |> 
   mutate(Grade_group = case_when(
     Grade_num <= 1 ~ "Low",
@@ -106,8 +126,9 @@ dat |>
        x = "mRNAsi", y = "Count", fill = "Grade Group") +
   theme_minimal()
 
+p
 
-
+ggsave("../results/04_key_plot_steamness_group.png", plot = p, width = 8, height = 6, dpi = 300)
 
 ```
 
@@ -133,5 +154,8 @@ dat |>
        color = "Grade Group") +
   theme_minimal()
 
+p
+
+ggsave("../results/04_key_plot_stemness_group_scaled.png", plot = p, width = 8, height = 6, dpi = 300)
 
 ```
