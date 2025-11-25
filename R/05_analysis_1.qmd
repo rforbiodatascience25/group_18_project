@@ -12,24 +12,29 @@ format:
 editor: visual
 ---
 
-## Load the data
+## Load data
+
+```{r}
+my_data <- read_csv("../data/02_dat_clean.csv")
+#view(my_data)
+```
+
+## Load libraries
 
 ```{r}
 #rm(list=ls())
 library(tidyverse)
-#library(pheatmap)
+library(ggplot2)
 library(tidyr)
 library(broom)
 library(grid)
 library(patchwork)
 
-my_data <- read_csv("../data/02_dat_clean.csv")
-#view(my_data)
 ```
 
 # FIGURE 1A
 
-## Checking the data
+## 1.1 Cleaning and numbering the "Grade" 
 
 Grade is a microscopic assessment of the appearance of cancer cells, indicating how different they are from the normal cells.
 
@@ -39,7 +44,7 @@ Grade is a microscopic assessment of the appearance of cancer cells, indicating 
 
 ```{r}
 print(unique(my_data$Grade))
-#now we are replacing text with numbers
+#convert descriptive text values to numierc values to enable statistical calculations
 changed_data <- my_data %>% 
   mutate(
     Grade_in_numbers = case_when(
@@ -60,14 +65,11 @@ changed_data <- my_data %>%
 print(changed_data$Grade_in_numbers)
 ```
 
-## Correlation
+## 1.2 Standardization of tumor names
 
-We want to see how the activity of gene x in patients with cancer y correlates with increasing malignancy
-
-For that we are using Spearman correlation, because it is resistant for asymmetry and it looks at ranks
+-   long names from TCGA database are converted to short abbreviations
 
 ```{r}
-
 changed_data$Cancer <- dplyr::recode(changed_data$Cancer,
   "blca_tcga_pan_can_atlas_2018"    = "BLCA",
   "brca_tcga_pan_can_atlas_2018"    = "BRCA",
@@ -93,7 +95,7 @@ changed_data$Cancer <- dplyr::recode(changed_data$Cancer,
   "ucec_tcga_pan_can_atlas_2018"    = "UCEC"
 )
 
-  
+#next step: filtering the data, leaving only the selected cancer types and arranges them in order on the graph
 cancer_order <- c(
   "LIHC", "UCEC", "KIRC", "LGG",
   "OV", "PAAD",
@@ -107,8 +109,11 @@ changed_data <- changed_data %>%
 
 changed_data$Cancer <- factor(changed_data$Cancer,
                               levels = cancers_use)
+```
 
-#here i define genes in the order for the graph
+## 1.3 Selection of genes for analysis
+
+```{r}
 genes_to_test <- c(
 #class I
   "HDAC3", "HDAC2", "HDAC1", "HDAC8",
@@ -121,9 +126,18 @@ genes_to_test <- c(
 #class IV
   "HDAC11")
 
+```
 
-#correlation for each pair
-#pivot_longer- from wide to long
+## 1.4 Statistical calculations- correlation
+
+We want to see how the activity of gene "x" in patients with cancer "y" correlates with increasing malignancy.
+
+For that we are using Spearman correlation, because it is resistant for asymmetry.
+
+The result is the correlation coefficient ( rho) and statistical significance ( p value)
+
+```{r}
+#pivot_longer- this function changes format from wide to long format
 s_correlation <- changed_data %>% 
   pivot_longer(
     cols = any_of(genes_to_test),
@@ -140,7 +154,7 @@ summarize(
 
 ```
 
-## Matrix_rho
+## 1.5 Matrix_rho
 
 heatmap requires data in matrix format
 
@@ -155,7 +169,7 @@ matrix_rho <- s_correlation %>%
   as.matrix()
 ```
 
-## Matrix_p
+## 1.6 Matrix_p
 
 ```{r}
 matrix_p <- s_correlation %>% 
@@ -180,10 +194,11 @@ matrix_rho_plot <- matrix_rho
 matrix_rho_plot[is.na(matrix_rho_plot)] <- 0
 ```
 
-## Organizing before the figure
+## 1.7 Preparation of the final graph
 
 ```{r}
 #adnotations-> annot_row creates a legend, assignment to classes
+#data frame is created assigning each gene to the appropriate family
 gene_classes <- c(
   HDAC3="class I",
   HDAC2="class I",
@@ -214,7 +229,7 @@ annot_df <- data.frame(
   HDAC_family = gene_classes[final_genes]
 )
 
-#BH correction for many tests- reduces fake positives 
+#a BH correction is applied to the p-values to avoid false positives with multiple tests
 matrix_p_dot <- matrix(p.adjust(as.vector(matrix_p), method = "BH"),
                        ncol = ncol(matrix_p),
                        nrow = nrow(matrix_p),
@@ -268,9 +283,9 @@ p_annot <- ggplot(annot_df, aes(
 
 ```
 
-## Pheatmap
+## 1.8 Drawing a graph 
 
-From the correlation:
+From heatmap we can see:
 
 -   Positive numbers - the more malignant the cancer, the more active the gene (red)
 
@@ -311,11 +326,11 @@ final_plot
 
 # FIGURE 1B
 
-## Checking the data
+## 2.1 Cleaning and numbering the "Stage" 
 
 ```{r}
 print(unique(my_data$Stage))
-#now we are replacing text with numbers
+#convert descriptive text values to numierc values to enable statistical calculations
 changed_data_for_stage <-my_data %>% 
   mutate( Stage_in_numbers =
             case_when(
@@ -333,7 +348,9 @@ changed_data_for_stage <-my_data %>%
 view(changed_data_for_stage)
 ```
 
-## Correlation
+## 2.2 Standardization of tumor names
+
+-   long names from TCGA database are converted to short abbreviations
 
 ```{r}
 changed_data_for_stage$Cancer <- dplyr::recode(changed_data_for_stage$Cancer,
@@ -375,6 +392,12 @@ changed_data_for_stage <- changed_data_for_stage %>%
 changed_data_for_stage$Cancer <- factor(changed_data_for_stage$Cancer,
                               levels = cancers_use_stage)
 
+
+```
+
+## 2.3 Selection of genes for analysis
+
+```{r}
 #here i define genes in the order for the graph
 genes_to_test_stage <- c(
 #class I
@@ -389,10 +412,12 @@ genes_to_test_stage <- c(
   "SIRT7", "SIRT2", "SIRT6", "SIRT4", "SIRT1", "SIRT3", "SIRT5"
 
 )
+```
 
+## 2.4 Statistical calculations- correlation
 
+```{r}
 #correlation for each pair
-#pivot_longer- from wide to long
 s_correlation_stage <- changed_data_for_stage %>% 
   pivot_longer(
     cols = any_of(genes_to_test_stage),
@@ -409,7 +434,7 @@ summarize(
 
 ```
 
-## Matrix_rho
+## 2.5 Matrix_rho
 
 ```{r}
 matrix_rho_stage <- s_correlation_stage %>% 
@@ -422,7 +447,7 @@ matrix_rho_stage <- s_correlation_stage %>%
   as.matrix()
 ```
 
-## Matrix_p
+## 2.6 Matrix_p
 
 ```{r}
 matrix_p_stage <- s_correlation_stage %>% 
@@ -446,7 +471,7 @@ matrix_rho_plot_stage <- matrix_rho_stage
 matrix_rho_plot_stage[is.na(matrix_rho_stage)] <- 0
 ```
 
-## Organizing before the figure
+## 2.7 Preparation of the final graph
 
 ```{r}
 #adnotations-> annot_row creates a legend, assignment to classes
@@ -530,7 +555,7 @@ p_annot_stage <- ggplot(annot_df_stage, aes(
 
 ```
 
-## Pheatmap
+## 2.8 Drawing a graph 
 
 ```{r}
 p_heatmap_stage <- ggplot(df_long_stage,
