@@ -30,7 +30,7 @@ p <- dat |> ggplot(aes(x = fct_infreq(Cancer))) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 0,
                                    hjust = 1)) +
-  coord_flip()
+  coord_flip() #The graph become horizontal
 
 p
 
@@ -58,7 +58,7 @@ ggsave("../results/04_key_plot_grade_distribution.png", plot = p, width = 8, hei
 p <- dat |> filter(!is.na(Grade_num))|> 
   ggplot(aes(x = Grade_num)) +
   geom_bar(fill = "darkorange") +
-  facet_wrap(~ Cancer, scales = "free_y") +
+  facet_wrap(~ Cancer, scales = "free_y") + #Applies distribution peer Cancer Type
   labs(title = "Tumor Grade Distribution by Cancer Type",
        x = "Grade",
        y = "Count") +
@@ -77,8 +77,8 @@ ggsave("../results/04_key_plot_grade_by_type.png", plot = p, width = 8, height =
 p <- dat |> pivot_longer(cols = starts_with("HDAC") | starts_with("SIRT"),
                     names_to = "Gene",
                     values_to = "Expression") |>
-  filter(!is.na(Expression) & Expression >= 0) |>
-  mutate(Expression_log = log10(Expression + 1)) |>
+  filter(!is.na(Expression) & Expression >= 0) |> #Avoid negative values
+  mutate(Expression_log = log10(Expression + 1)) |> #Avoid 0 values become Inf
   ggplot(aes(x = Gene,
              y = Expression_log)) +
   geom_boxplot(fill = "skyblue") +
@@ -120,7 +120,7 @@ p <- dat |>
     Grade_num >= 3 ~ "High"
   )) |> 
   ggplot(aes(x = mRNAsi, fill = Grade_group)) +
-  geom_density() +
+  geom_density() + #Density keep area equal 1
   scale_fill_manual(values = c("Low" = "skyblue", "Mid" = "gold", "High" = "tomato")) +
   labs(title = "Stemness Index (mRNAsi) by Tumor Grade Group",
        x = "mRNAsi", y = "Count", fill = "Grade Group") +
@@ -133,7 +133,7 @@ ggsave("../results/04_key_plot_steamness_group.png", plot = p, width = 8, height
 ```
 
 ```{r}
-dat |> 
+p <- dat |> 
   mutate(Grade_group = case_when(
     Grade %in% c("G1", "Low Grade") ~ "Low",
     Grade %in% c("G2") ~ "Mid",
@@ -144,9 +144,14 @@ dat |>
   drop_na(mRNAsi, Grade_group) |> 
   ggplot(aes(x = mRNAsi, fill = Grade_group, color = Grade_group)) +
   geom_histogram(position = "identity", bins = 30, alpha = 0.5) +
-  geom_density(aes(y = ..count..), size = 1.1) +
-  scale_fill_manual(values = c("Low" = "#56B4E9", "Mid" = "#F0E442", "High" = "#E69F00")) +
-  scale_color_manual(values = c("Low" = "#56B4E9", "Mid" = "#F0E442", "High" = "#E69F00")) +
+  geom_density(aes(y = ..count..),
+               size = 1.1) + #Scale each density to the max vaule of the histogram
+  scale_fill_manual(values = c("Low" = "#56B4E9",
+                               "Mid" = "#F0E442",
+                               "High" = "#E69F00")) +
+  scale_color_manual(values = c("Low" = "#56B4E9",
+                                "Mid" = "#F0E442",
+                                "High" = "#E69F00")) +
   labs(title = "Stemness Index (mRNAsi) by Tumor Grade Group",
        x = "mRNAsi",
        y = "Count",
