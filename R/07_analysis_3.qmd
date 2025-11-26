@@ -828,6 +828,9 @@ final_plot_dfs <- (
 #see plots            
 final_plot_os
 final_plot_dfs 
+
+ggsave("../results/07_plot_Overall_Survival.png", plot = final_plot_os, width = 8, height = 5, dpi = 300)
+ggsave("../results/07_plot_Disease_Free_Survival.png", plot = final_plot_dfs, width = 8, height = 5, dpi = 300)
 ```
 
 #### Side by side/below each other
