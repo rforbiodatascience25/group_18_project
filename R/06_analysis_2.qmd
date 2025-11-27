@@ -23,11 +23,11 @@ library(tidyverse)
 library(broom)
 library(patchwork)
 ```
-# We filter only the samples with mRNAsi**
+##  We filter only the samples with mRNAsi
 ```{r}
 data_for_stemness <- my_data %>% drop_na(mRNAsi)
 ```
-# Abbreviations of the tumor
+## Abbreviations of the tumors 
 ```{r}
 data_for_stemness$Cancer <- dplyr::recode(data_for_stemness$Cancer,
   "blca_tcga_pan_can_atlas_2018"    = "BLCA",
@@ -56,7 +56,7 @@ data_for_stemness$Cancer <- dplyr::recode(data_for_stemness$Cancer,
 
 cancers_use_stemness <- unique(data_for_stemness$Cancer)
 ```
-# Genes to be tested
+##  Genes to be tested
 ```{r}
 genes_to_test_stemness <- c(
   "HDAC4", "HDAC5", "HDAC9", "HDAC7", # class IIA
@@ -66,7 +66,7 @@ genes_to_test_stemness <- c(
   "HDAC2", "HDAC3", "HDAC8", "HDAC1"  # class I
 )
 ```
-# Computation of correlation
+##  Computation of correlation
 ```{r}
 s_correlation_stemness <- data_for_stemness %>%
   pivot_longer(cols = any_of(genes_to_test_stemness),
@@ -78,7 +78,7 @@ s_correlation_stemness <- data_for_stemness %>%
   select(Cancer, gene, rho = estimate, p.value)
 ```
 
-# Correction of BH for p-value
+##  Correction of BH for p-value
 ```{r}
 s_correlation_stemness <- s_correlation_stemness %>%
   mutate(p.adj = p.adjust(p.value, method = "BH"),
@@ -89,7 +89,7 @@ s_correlation_stemness <- s_correlation_stemness %>%
            TRUE ~ ""
          ))
 ```
-# Genes' classes
+## Genes' classes
 
 ```{r}
 gene_classes <- c(
@@ -106,7 +106,7 @@ annot_df <- data.frame(
 )
 ```
 
-# Heatmap
+##  Heatmap plotting
 
 ```{r}
 p_heatmap <- ggplot(s_correlation_stemness,
@@ -132,7 +132,7 @@ p_heatmap <- ggplot(s_correlation_stemness,
   labs(title = "mRNAsi vs HDAC expression in TCGA tumors")
 ```
 
-# Annotation panel
+## Annotation panel plotting
 
 ```{r}
 p_annot <- ggplot(annot_df, aes(
@@ -152,7 +152,7 @@ p_annot <- ggplot(annot_df, aes(
   theme_void() +
   theme(plot.margin = margin(t = 5.5, r = 0, b = 5.5, l = 5.5))
 ```
-# Final Combination
+## Final Combination
 
 ```{r}
 final_plot <- p_annot + p_heatmap + plot_layout(widths = c(1, 20), guides = "collect")
