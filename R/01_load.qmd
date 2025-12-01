@@ -95,7 +95,7 @@ studies <- c(
 
 study_tbl <- tibble(
   studyId   = studies,
-  profileId = paste0(studies, "_rna_seq_v2_mrna")
+  profileId = ctr_c(studies, "_rna_seq_v2_mrna")
 )
 ```
 
@@ -118,7 +118,7 @@ study_tbl %>%
         by = "hugoGeneSymbol"
       )[[1]] %>% select(patientId, hugoGeneSymbol, value)
     }),
-    file = paste0("../_raw", "/expr_", studyId, ".csv"),
+    file = ctr_c("../_raw", "/expr_", studyId, ".csv"),
     written = map2(expr, file, write_csv)
   ) %>% 
   invisible()
@@ -130,7 +130,7 @@ study_tbl %>%
 study_tbl %>%
   mutate(
     clin = map(studyId, ~ clinicalData(cbio, .x)),
-    file = paste0("../_raw", "/clinical_", studyId, ".csv"),
+    file = ctr_c("../_raw", "/clinical_", studyId, ".csv"),
     written = map2(clin, file, write_csv)
   ) %>% 
 invisible()
