@@ -44,7 +44,7 @@ Grade is a microscopic assessment of the appearance of cancer cells, indicating 
 
 ```{r}
 print(unique(my_data$Grade))
-#convert descriptive text values to numierc values to enable statistical calculations
+#converting descriptive text values to numierc values to enable statistical calculations
 changed_data <- my_data %>% 
   mutate(
     Grade_in_numbers = case_when(
@@ -95,7 +95,7 @@ changed_data$Cancer <- dplyr::recode(changed_data$Cancer,
   "ucec_tcga_pan_can_atlas_2018"    = "UCEC"
 )
 
-#next step: filtering the data, leaving only the selected cancer types and arranges them in order on the graph
+#next step: filtering the data, leaving only the selected cancer types and arranging them in order on the graph
 cancer_order <- c(
   "LIHC", "UCEC", "KIRC", "LGG",
   "OV", "PAAD",
@@ -257,7 +257,7 @@ df_long <- matrix_rho_plot %>%
 df_long$Cancer <- factor(df_long$Cancer, levels = cancer_order)
 
 df_long$label <- as.character(display_matrix)
-
+df_long$label[df_long$label == ""] <- NA
 
 #adnotations panel
 p_annot <- ggplot(annot_df, aes(
@@ -278,7 +278,8 @@ p_annot <- ggplot(annot_df, aes(
   theme(
     plot.margin = margin(t = 5.5, r = 0, b = 5.5, l = 5.5)
     ) +
-  labs(fill = "HDAC family")
+  labs(fill = "HDAC family") +
+  guides(fill = guide_legend(title = "HDAC family", order = 1))
 
 
 ```
@@ -302,8 +303,19 @@ p_heatmap <- ggplot(df_long,
                         y=factor(gene, levels=rev(final_genes)),
                         fill=value)) +
   geom_tile(color = "white", size = 0.2) +
+  geom_point(aes(shape = label), size = 0, alpha = 0)+ 
   geom_text(aes(label=label), size=3, vjust = 0.75) +
-  scale_fill_gradientn(colors=my_colours, limits=c(-0.3,0.3), name = "rho value") + scale_y_discrete(expand = c(0, 0), position = "right") + 
+  scale_fill_gradientn(colors=my_colours,
+                       limits=c(-0.3,0.3),
+                       name = "rho value",
+                       guide = guide_colorbar(order = 2, barwidth = 0.4, barheight = 3)) + 
+  scale_shape_manual(
+    name = "p value",
+    values = c("•", "▲", "■"),
+    labels = c("< 0.05", "< 0.01", "< 0.001"),
+    na.translate = FALSE
+  ) +
+  scale_y_discrete(expand = c(0, 0), position = "right") + 
   scale_x_discrete(expand = c(0, 0)) +
   theme_minimal(base_size=7) +
   theme(
@@ -312,8 +324,15 @@ p_heatmap <- ggplot(df_long,
     axis.title = element_blank(),
     panel.grid = element_blank(),
     plot.margin = margin(t = 5.5, r = 5.5, b = 5.5, l = 0),
-    legend.position = "right"
+    legend.position = "right",
+    legend.key.size = unit(0.3, "cm"),
+    legend.text = element_text(size = 6),
+    legend.title = element_text(size = 7, face = "bold"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(0,0,0,0)
   ) +
+  guides(
+    shape = guide_legend(override.aes = list(alpha = 1, size = 2),order = 3))
   labs(title="A: Grade ~ mRNA in TCGA tumors")
 
 
@@ -398,7 +417,7 @@ changed_data_for_stage$Cancer <- factor(changed_data_for_stage$Cancer,
 ## 2.3 Selection of genes for analysis
 
 ```{r}
-#here i define genes in the order for the graph
+#here we define genes in the order for the graph
 genes_to_test_stage <- c(
 #class I
   "HDAC8", "HDAC3", "HDAC2", "HDAC1",
@@ -550,7 +569,8 @@ p_annot_stage <- ggplot(annot_df_stage, aes(
   theme(
     plot.margin = margin(t = 5.5, r = 0, b = 5.5, l = 5.5)
     ) +
-  labs(fill = "HDAC family")
+  labs(fill = "HDAC family") +
+  guides(fill = guide_legend(title = "HDAC family", order = 1))
 
 
 ```
@@ -559,12 +579,20 @@ p_annot_stage <- ggplot(annot_df_stage, aes(
 
 ```{r}
 p_heatmap_stage <- ggplot(df_long_stage,
-                    aes(x=Cancer,
-                        y=factor(gene, levels=rev(final_genes_stage)),
-                        fill=value)) +
+                          aes(x=Cancer,y=factor(gene, levels=rev(final_genes_stage)), fill=value)) +
   geom_tile(color = "white", size = 0.2) +
+  geom_point(aes(shape = label), size = 0, alpha = 0) +
   geom_text(aes(label=label), size=3, vjust = 0.75) +
-  scale_fill_gradientn(colors=my_colours_stage, limits=c(-0.3,0.3), name = "rho value") + scale_y_discrete(expand = c(0, 0), position = "right") + 
+  scale_fill_gradientn(colors=my_colours_stage, 
+                       limits=c(-0.3,0.3),
+                       name = "rho value",
+                       guide = guide_colorbar(order = 2, barwidth = 0.4, barheight = 3)) + 
+  scale_shape_manual(name = "P-value",
+                     values = c("•" = 16, "▲" = 17, "■" = 15),
+                     breaks = c("•", "▲", "■"),
+                     labels = c("< 0.05", "< 0.01", "< 0.001"),
+                     na.translate = FALSE) +
+  scale_y_discrete(expand = c(0, 0), position = "right") + 
   scale_x_discrete(expand = c(0, 0)) +
   theme_minimal(base_size=7) +
   theme(
@@ -573,7 +601,14 @@ p_heatmap_stage <- ggplot(df_long_stage,
     axis.title = element_blank(),
     panel.grid = element_blank(),
     plot.margin = margin(t = 5.5, r = 5.5, b = 5.5, l = 0),
-    legend.position = "right"
+    legend.position = "right",
+    legend.key.size = unit(0.3, "cm"),
+    legend.text = element_text(size = 6),
+    legend.title = element_text(size = 7, face = "bold"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(0,0,0,0)
+  ) + 
+  guides(shape = guide_legend(override.aes = list(alpha = 1, size = 2), order = 3)
   ) +
   labs(title="B: Stage ~ mRNA in TCGA tumors")
 
