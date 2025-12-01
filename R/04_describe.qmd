@@ -11,3 +11,152 @@ format:
     embed-resources: true
 editor: visual
 ---
+
+# Describe Data
+
+## Load data from previous step
+
+```{r}
+dat <- read.csv("../data/03_dat_aug.csv")
+```
+
+## Number of patients per TCGA cohort
+
+```{r}
+p <- dat |> ggplot(aes(x = fct_infreq(Cancer))) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Number of Patients per Cancer Type",
+       x = "Cancer Type", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0,
+                                   hjust = 1)) +
+  coord_flip() #The graph become horizontal
+
+p
+
+ggsave("../results/04_key_plot_tcga_cohort.png", plot = p, width = 8, height = 6, dpi = 300)
+```
+
+This bar chart shows the distribution of patient counts across cancer types. Most cancer types have a relatively similar number of patients, except for BRCA, which is much larger, and a few cancers such as TGCT, GBM, and PAAD, which have noticeably smaller cohorts. Overall, the figure highlights an imbalance mainly driven by these extremes.Tumor grade distribution
+
+## Tumo Grade Distribution
+
+```{r}
+p <- dat |> drop_na(Grade_num) |> 
+  ggplot(aes(x = Grade_num)) +
+  geom_bar(fill = "darkorange") +
+  labs(title = "Tumor Grade Distribution",
+       x = "Tumor Grade",
+       y = "Number of Patients") +
+  theme_minimal()
+
+p
+
+ggsave("../results/04_key_plot_grade_distribution.png", plot = p, width = 8, height = 6, dpi = 300)
+
+```
+
+The figure shows the Tumor Grade Distribution in all patients. Most of the patients had intermediate tumor grades (2-3). Meanwhile, the Tumor Grade 1 and 4 are noticeable smaller.
+
+```{r}
+p <- dat |> filter(!is.na(Grade_num))|> 
+  ggplot(aes(x = Grade_num)) +
+  geom_bar(fill = "darkorange") +
+  facet_wrap(~ Cancer, scales = "free_y") + #Applies distribution peer Cancer Type
+  labs(title = "Tumor Grade Distribution by Cancer Type",
+       x = "Grade",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0,
+                                   hjust = 1))
+
+p
+
+ggsave("../results/04_key_plot_grade_by_type.png", plot = p, width = 8, height = 6, dpi = 300)
+```
+
+This figure shows the distribution of tumor grades across cancer types. Most cancers display a concentration in intermediate grades (2–3), while low (1) and high (4) grades are less frequent in nearly all groups. Some cancers, such as OV_T, show a strong predominance of a single grade, whereas others (e.g., LGG\_, KIRC) exhibit a broader spread
+
+## HDAC and SIRT gene expression
+
+```{r}
+p <- dat |> pivot_longer(cols = starts_with("HDAC") | starts_with("SIRT"),
+                    names_to = "Gene",
+                    values_to = "Expression") |>
+  filter(!is.na(Expression) & Expression >= 0) |> #Avoid negative values
+  mutate(Expression_log = log10(Expression + 1)) |> #Avoid 0 values become Inf
+  ggplot(aes(x = Gene,
+             y = Expression_log)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(title = "HDAC and SIRT Gene Expression (log10 + 1)",
+       x = "Gene",
+       y = "log10(Expression Level + 1)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1))
+
+p
+
+ggsave("../results/04_key_plot_gene_expression.png", plot = p, width = 8, height = 6, dpi = 300)
+```
+
+This figure shows the distribution of HDAC and SIRT gene expression levels across all samples. Expression values were transformed using log10(expression + 1) to avoid infinite or undefined values for genes with zero counts.
+
+Overall, most genes display moderate expression with varying degrees of dispersion, while a few (HDAC9 and SIRT4) show broader variability and lower median levels. This highlights heterogeneity in expression patterns within the HDAC and SIRT families.
+
+## Stemness index (mRNAsi)
+
+```{r}
+p <- dat |> filter(!is.na(mRNAsi)) |> 
+  ggplot(aes(x = mRNAsi)) +
+  geom_histogram(binwidth = 0.05, fill = "mediumseagreen", color = "white") +
+  labs(title = "Stemness Index (mRNAsi)",
+       x = "mRNAsi",
+       y = "Number of Patients") +
+  theme_minimal()
+
+p
+  
+ggsave("../results/04_key_plot_stemness.png", plot = p, width = 8, height = 6, dpi = 300)
+
+```
+
+This histogram shows the distribution of the stemness index (mRNAsi) across all patients. Most values fall between 0.20 and 0.45, with a clear peak around 0.30–0.35, indicating that the majority of tumors exhibit intermediate levels of stemness. Very low and very high mRNAsi values are relatively rare.
+
+Next, we will examine how this distribution varies across tumor grades to explore whether higher stemness is associated with more aggressive (higher-grade) tumors.
+
+```{r}
+p <- dat |>
+  mutate(Grade_num = factor(Grade_num, levels = c("4","3", "2", "1"))) |> 
+  drop_na(mRNAsi, Grade_num) |> 
+  ggplot(aes(x = Grade_num,
+             y = mRNAsi,
+             fill = Grade_num)) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_boxplot(width = 0.1, outlier.shape = NA) +
+  theme_minimal() +
+  labs(title = "mRNAsi Distribution by Tumor Grade (Violin Plot)",
+       x = "Grade Group", y = "mRNAsi")
+p
+  
+ggsave("../results/04_key_plot_violin.png", plot = p, width = 8, height = 6, dpi = 300)
+
+```
+
+This violin plot shows the distribution of mRNAsi across tumor grades (1–4). Overall, the median stemness values are similar across groups, with only a modest upward shift in higher grades (3 and 4). However, this difference is small and does not, by itself, indicate a statistically significant trend.
+
+```{r}
+p <- dat |>
+  select(starts_with("HDAC"), starts_with("SIRT")) |>
+  cor(use = "pairwise.complete.obs") |>
+  as.data.frame() |>
+  rownames_to_column("Gene1") |>
+  pivot_longer(-Gene1, names_to = "Gene2", values_to = "Correlation") |> 
+  ggplot(aes(x = Gene1, y = Gene2, fill = Correlation)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p
+  
+ggsave("../results/04_key_plot_stemness.png", plot = p, width = 8, height = 6, dpi = 300)
+```

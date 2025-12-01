@@ -11,19 +11,24 @@ format:
     embed-resources: true
 editor: visual
 ---
+## Load data
 
 ```{r}
-library(tidyverse)
-library(pheatmap)
-library(grid)
-library(broom)
-
 my_data <- read_csv("../data/02_dat_clean.csv")
-
-data_for_stemness <- my_data %>%
-  drop_na(mRNAsi) 
-
-
+#view(my_data)
+```
+## Load Libraries
+```{r}
+library(tidyverse)
+library(broom)
+library(patchwork)
+```
+## 1. Filtering only the samples with mRNAsi
+```{r}
+data_for_stemness <- my_data %>% drop_na(mRNAsi)
+```
+## 2. Standardization of tumor names 
+```{r}
 data_for_stemness$Cancer <- dplyr::recode(data_for_stemness$Cancer,
   "blca_tcga_pan_can_atlas_2018"    = "BLCA",
   "brca_tcga_pan_can_atlas_2018"    = "BRCA",
@@ -50,8 +55,9 @@ data_for_stemness$Cancer <- dplyr::recode(data_for_stemness$Cancer,
 )
 
 cancers_use_stemness <- unique(data_for_stemness$Cancer)
-
-
+```
+##  3. Selection of genes for analysis
+```{r}
 genes_to_test_stemness <- c(
   "HDAC4", "HDAC5", "HDAC9", "HDAC7", # class IIA
   "HDAC10", "HDAC6",                  # class IIB
@@ -59,59 +65,37 @@ genes_to_test_stemness <- c(
   "HDAC11",                           # class IV
   "HDAC2", "HDAC3", "HDAC8", "HDAC1"  # class I
 )
-
-
+```
+##  4. Computation of Spearman correlations between gene expression and mRNAsi.
+  Steps: reshape data, group by Cancer and gene, run cor.test, extract rho (correlation) and p-value.
+```{r}
 s_correlation_stemness <- data_for_stemness %>%
-
-  pivot_longer(
-    cols = any_of(genes_to_test_stemness),
-    names_to = "gene",
-    values_to = "expression"
-  ) %>%
-
+  pivot_longer(cols = any_of(genes_to_test_stemness),
+               names_to = "gene", values_to = "expression") %>%
   group_by(Cancer, gene) %>%
-  # correlation
-  summarize(
-    summary_test = broom::tidy(cor.test(expression, mRNAsi, method = "spearman", exact = FALSE)),
-    .groups = "drop"
-  ) %>%
-
+  summarize(summary_test = broom::tidy(cor.test(expression, mRNAsi, method = "spearman", exact = FALSE)),
+            .groups = "drop") %>%
   unnest(summary_test) %>%
   select(Cancer, gene, rho = estimate, p.value)
+```
+
+##  5. Adjustment p-values using Benjamini–Hochberg (BH) correction to control false positives. 
+  Create a "label" column with symbols showing significance levels.
+```{r}
+s_correlation_stemness <- s_correlation_stemness %>%
+  mutate(p.adj = p.adjust(p.value, method = "BH"),
+         label = case_when(
+           p.adj < 0.001 ~ "■",
+           p.adj < 0.01  ~ "▲",
+           p.adj < 0.05  ~ "•",
+           TRUE ~ ""
+         ))
+```
+## 6. Definition of gene classes (I, IIA, IIB, III, IV) and assignment of each geneto its corresponding family. 
+  Creation a data frame (annot_df) linking genes to HDAC/SIRT classes for annotation in the heatmap.
 
 
-# rho
-matrix_rho_stemness <- s_correlation_stemness %>%
-  select(gene, Cancer, rho) %>%
-  pivot_wider(names_from = Cancer, values_from = rho) %>%
-  column_to_rownames("gene") %>%
-  as.matrix()
-
-# p-value 
-matrix_p_stemness <- s_correlation_stemness %>%
-  select(gene, Cancer, p.value) %>%
-  pivot_wider(names_from = Cancer, values_from = p.value) %>%
-  column_to_rownames("gene") %>%
-  as.matrix()
-
-# Sorting the genes
-final_genes <- genes_to_test_stemness[genes_to_test_stemness %in% rownames(matrix_rho_stemness)]
-matrix_rho_stemness <- matrix_rho_stemness[final_genes, , drop=FALSE]
-matrix_p_stemness <- matrix_p_stemness[final_genes, , drop=FALSE]
-
-# NA = 0
-matrix_rho_plot_stemness <- matrix_rho_stemness
-matrix_rho_plot_stemness[is.na(matrix_rho_plot_stemness)] <- 0
-
-# BH correction for dots
-matrix_p_dot_stemness <- matrix(p.adjust(as.vector(matrix_p_stemness), method = "BH"),
-                                ncol = ncol(matrix_p_stemness))
-
-display_matrix_stemness <- ifelse(matrix_p_dot_stemness < 0.001, "■",
-                           ifelse(matrix_p_dot_stemness < 0.01,  "▲",
-                           ifelse(matrix_p_dot_stemness < 0.05,  "•", "")))
-
-#adnotations
+```{r}
 gene_classes <- c(
   HDAC3="class I", HDAC2="class I", HDAC1="class I", HDAC8="class I",
   HDAC7="class IIA", HDAC9="class IIA", HDAC5="class IIA", HDAC4="class IIA",
@@ -120,47 +104,70 @@ gene_classes <- c(
   HDAC6="class IIB", HDAC10="class IIB", HDAC11="class IV"
 )
 
-annot_row_stemness <- data.frame(
-  HDAC_family = as.character(gene_classes[rownames(matrix_rho_plot_stemness)]),
-  row.names = rownames(matrix_rho_plot_stemness),
-  stringsAsFactors = FALSE
-)
-annot_row_stemness$HDAC_family <- factor(annot_row_stemness$HDAC_family, 
-                                         levels = c("class I", "class IIA", "class IIB", "class III", "class IV"))
-
-# colours
-ann_colors = list(
-  HDAC_family = c(
-    "class I" = "salmon",   
-    "class IIA" = "#E69F52", 
-    "class IIB" = "#BDB600", 
-    "class III" = "#009E60", 
-    "class IV" = "#008ECE"))
-
-# heatmap colours
-my_colours <- colorRampPalette(c("blue", "white", "red"))(101)
-breaks_blue <- seq(-0.7, -0.01, length.out = 51) 
-breaks_red <- seq(0.01, 0.8, length.out = 51)
-my_breaks_stemness <- c(breaks_blue, breaks_red)
-
-
-pheatmap(
-  matrix_rho_plot_stemness,
-  color = my_colours,
-  breaks = my_breaks_stemness, 
-  na_col = "grey90",
-  
-  cluster_rows = FALSE,  
-  cluster_cols = FALSE,
-  
-  annotation_row = annot_row_stemness,
-  annotation_colors = ann_colors,
-  display_numbers = display_matrix_stemness,
-  fontsize_number = 6,
-  
-  main = "mRNAsi vs HDAC expression",
-
-  cellwidth = 10, 
-  cellheight = 8
+annot_df <- data.frame(
+  gene = genes_to_test_stemness,
+  HDAC_family = gene_classes[genes_to_test_stemness]
 )
 ```
+
+## 7. Creation of the heatmap of Spearman correlations (rho) between gene expression and mRNAsi.
+ - x-axis: Cancer types
+ - y-axis: Genes (ordered, reversed for display)
+ - fill color: correlation coefficient (blue = negative, red = positive)
+ - overlay symbols (■, ▲, •) showing significance levels
+
+```{r}
+p_heatmap <- ggplot(s_correlation_stemness,
+                    aes(x = Cancer,
+                        y = factor(gene, levels = rev(genes_to_test_stemness)),
+                        fill = rho)) +
+  geom_tile(color = "white", size = 0.2) +
+  geom_text(aes(label = label), size = 3, vjust = 0.75) +
+  scale_fill_gradientn(colors = colorRampPalette(c("blue", "white", "red"))(101),
+                       limits = c(-0.7, 0.8),
+                       name = "rho value") +
+  scale_y_discrete(expand = c(0, 0), position = "right") +
+  scale_x_discrete(expand = c(0, 0)) +
+  theme_minimal(base_size = 7) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = margin(t = 5.5, r = 5.5, b = 5.5, l = 0),
+    legend.position = "right"
+  ) +
+  labs(title = "mRNAsi vs HDAC expression in TCGA tumors")
+```
+
+## 8. Creation of the annotation panel showing gene classes (HDAC families).
+  Each gene is displayed as a tile, colored by its family (I, IIA, IIB, III, IV).
+
+```{r}
+p_annot <- ggplot(annot_df, aes(
+    x = 1,
+    y = factor(gene, levels = rev(genes_to_test_stemness)),
+    fill = HDAC_family)) +
+  geom_tile() +
+  scale_fill_manual(values = c(
+    "class I"="salmon",
+    "class IIA"="#E69F52",
+    "class IIB"="#BDB600",
+    "class III"="#009E60",
+    "class IV"="#008ECE")) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(y = "HDAC family", fill = "HDAC family") +
+  theme_void() +
+  theme(plot.margin = margin(t = 5.5, r = 0, b = 5.5, l = 5.5))
+```
+## 9. Combine annotation panel and heatmap into one figure.
+   Show the plot and save it as PNG.
+
+```{r}
+final_plot <- p_annot + p_heatmap + plot_layout(widths = c(1, 20), guides = "collect")
+final_plot
+ggsave("../results/heatmap_stemness.png", plot = final_plot, width = 8, height = 6, dpi = 300)
+
+```
+

@@ -15,6 +15,7 @@ editor: visual
 ## Load data
 
 ```{r}
+#Get data from our augment file
 dat_aug <- read.csv("../data/03_dat_aug.csv")
 ```
 
@@ -24,31 +25,28 @@ dat_aug <- read.csv("../data/03_dat_aug.csv")
 library(tidyverse)
 library(ggplot2)
 library(patchwork)
-library(grid)
 library(cowplot)
 ```
 
 ## Data changes
 
-#### Define list of genes and correct names
+#### Define list of genes
 
 ```{r}
 # define list of genes
 genes <- c(paste0("HDAC", 1:11), paste0("SIRT", 1:7))
-
-#first fix names cancers
-dat_aug$Cancer[dat_aug$Cancer == "OV_T"] <- "OV"
-dat_aug$Cancer[dat_aug$Cancer == "GBM_"] <- "GBM"
-dat_aug$Cancer[dat_aug$Cancer == "LGG_"] <- "LGG"
 
 genes
 ```
 
 #### Fix OS and DFS status to numerical values
 
+In the data, for both OS and DFS the status was not numerical, but in stead "1:DECEASED" etc. We want to transform these values into numerical ones.
+
 ```{r}
 #Fix OS and DFS status to numeric 0/1
-#make sure the cols are characters
+
+#cols treated as character strings, because after case_when needs exact text values
 dat_aug$OS_STATUS  <- as.character(dat_aug$OS_STATUS)
 dat_aug$DFS_STATUS <- as.character(dat_aug$DFS_STATUS)
 
@@ -65,9 +63,17 @@ dat_aug$DFS_STATUS <- case_when(
   TRUE ~ NA_real_
 )
 
+#NA_real_ = numeric version of NA: needed for missing or unexpected values
+
 ```
 
 #### Transform data
+
+To ensure genes are comparable across cancvers and the cox model (later) will run well, the data has to be transformed.
+
+We standardize the gene expression values within each cancer type.
+
+-\> Apply z-score scaling: (value - mean) / SD
 
 ```{r}
 # transform gene expression
@@ -75,8 +81,6 @@ dat_aug <- dat_aug |>
   group_by(Cancer) |>
   mutate(across(all_of(genes), scale)) |>
   ungroup()
-#dat_aug <- dat_aug |>
-#  mutate(across(all_of(genes), function(x) log2(x + 1)))
 ```
 
 ## Create matrices
@@ -88,8 +92,13 @@ Then create empty matrices to later be filled with Cox function values
 #### Create empty matrices
 
 ```{r}
-#split by cancer 
+#split data into list by cancer types
+#each element contains only one cancer's samples
 split_cancers <- split(dat_aug, dat_aug$Cancer)
+
+#create empty matrices
+#rows = genes, cols = cancers
+#filled with NA_real_, later replaced with Cox model values
 
 #OS
 mat_hr_os <- matrix(
@@ -101,6 +110,7 @@ mat_hr_os <- matrix(
 mat_pval_os <- mat_hr_os
 
 #DFS
+#same way OS
 mat_hr_dfs <- matrix(
   NA_real_,
   nrow = length(genes),
@@ -109,12 +119,13 @@ mat_hr_dfs <- matrix(
 )
 mat_pval_dfs <- mat_hr_dfs
 
-#check
+#check matrix dimensions
 dim(mat_hr_os)
 dim(mat_pval_os)
 dim(mat_hr_dfs)
 dim(mat_pval_dfs)
 #should be 18x22
+
 ```
 
 #### Define Cox model
@@ -124,35 +135,56 @@ The cox hazard model is a statistical technique used for survival analysis. It e
 Function to not have to repeat for every combination of genes and cancer types separately
 
 ```{r}
-# create cox_gene function to not have to copy for each gene etc.
-cox_single_gene <- function(cancer_data, time_col, status_col, gene) {
+# create cox_single_gene function: cox hazard analysis for one gene in one cancer type
+#returns log10 hr and p-value
+
+cox_single_gene <- function(cancer_data, time_col, status_col, gene) { 
+  #data frame 1 cancer type, survival time column OS/DFS, status col 0/1, gene for hr
+
+#temporary data set d  
+  d <- cancer_data[, c(time_col, 
+                       status_col, 
+                       gene)] #select necessary col
+  d <- d[complete.cases(d), ] #remove rows with missing data = contain any NA
   
-  d <- cancer_data[, c(time_col, status_col, gene)] #select necessary col
-  d <- d[complete.cases(d), ] #remove rows with missing data
-  
+#check for minimum smaple size
+# <5 is too few to run Cox model -> function aborts
   if (nrow(d) < 5) {
-    return(list(log10HR = NA, pvalue = NA)) #too few samples to fit Cox model
+    return(list(log10HR = NA, 
+                pvalue = NA)) 
   }
-  
-  med <- median(d[[gene]], na.rm = TRUE)
+
+#split expression in high vs low group
+  #calc median expression of gene & create binary value: 1 for high, 0 for low
+  med <- median(d[[gene]], 
+                na.rm = TRUE)
 d$expr_group <- ifelse(d[[gene]] > med, 1, 0)
 
-fit <- try(coxph(Surv(d[[time_col]], d[[status_col]]) ~ d$expr_group), silent = TRUE)
+#fit the cox model with coxph
+#try so function does not crash if model fails
+fit <- try(coxph(Surv(d[[time_col]], 
+                      d[[status_col]]) ~ d$expr_group), 
+           silent = TRUE)
   
+#if model fails, return NA
   if (inherits(fit, "try-error")) {
-    return(list(log10HR = NA, pvalue = NA))
+    return(list(log10HR = NA, 
+                pvalue = NA))
   }
   
-  #HR and p-value
+  #extract HR and p-value
   s <- summary(fit)
   #if summary fails, return NA
   if (is.null(s$coefficients)) {
-    return(list(log10HR = NA, pvalue = NA))
+    return(list(log10HR = NA, 
+                pvalue = NA))
   }
   
+  #extract hazard ratio and p-value
   hr <- s$coefficients[,"exp(coef)"]
   pval <- s$coefficients[, "Pr(>|z|)"]
   
+  #return log10(HR) and p-value
   list(log10HR = log10(hr), pvalue = pval)
   
 }
@@ -160,24 +192,31 @@ fit <- try(coxph(Surv(d[[time_col]], d[[status_col]]) ~ d$expr_group), silent = 
 
 #### Fill matrices
 
+Fill the hazard ratio and p-value matrices for each cancer x gene combination.
+
+Do this by extracting the dataset for a specific cancer type, run the cox model on it, and save it in a matrix
+
 ```{r}
+#fill matrices
+
 # OS
 for (cn in names(split_cancers)) { 
-  dat_c <- split_cancers[[cn]] #data per cancer
+  dat_c <- split_cancers[[cn]] #extract data per cancer type into new dataset
   
-  for (g in genes) {
-    res <- cox_single_gene(
+  for (g in genes) { #for each gene....
+    res <- cox_single_gene( #....run cox model
       cancer_data = dat_c,
       time_col = "OS_MONTHS",
       status_col = "OS_STATUS",
-      gene = g
-    )
+      gene = g 
+    ) #calls cox function and returns hz and pval
     mat_hr_os[g, cn] <- res$log10HR
     mat_pval_os[g, cn] <- res$pvalue
-  }
+  } #stores results into matrices
 }
 
 #DFS
+# same method
 for (cn in names(split_cancers)) {
   
   dat_c <- split_cancers[[cn]]   # data for this cancer
@@ -198,21 +237,23 @@ for (cn in names(split_cancers)) {
 
 ```
 
-#### Create significance symbol matrix
+#### Create significance (p-value) symbol matrix
 
-For the p-values
+Take p-value matrices and convert them into symbol matrices
+
+Will later be drawn on top of the heatmap
 
 ```{r}
 # converting numerical p-values into shape symbols: triangle, square, dot or none
 
 #OS
-symbol_mat_os <- ifelse(
+symbol_mat_os <- ifelse( #create new symbol matrix
   mat_pval_os < 0.001, "\u25B2",   # triangle ▲
   ifelse(
     mat_pval_os < 0.01, "\u25A0",  # square ■
     ifelse(
       mat_pval_os < 0.05, "\u2022", # dot •
-      ""
+      "" #otherwise no symbol
     )
   )
 )
@@ -236,7 +277,11 @@ dim(symbol_mat_dfs)
 
 #### Fix names of cancers
 
+Some cancers have \_ in their name: OV_T, GBM\_, and LGG\_. We want their names to just be OV, GBM, and LGG.
+
 ```{r}
+#cleaning function
+#gsub replaces substring only when it's found with correct cancer abbreviations
 fix_names <- function(mat) {
   colnames(mat) <- gsub("OV_T", "OV", colnames(mat))
   colnames(mat) <- gsub("GBM_", "GBM", colnames(mat))
@@ -244,6 +289,7 @@ fix_names <- function(mat) {
   mat
 }
 
+#all matrices need the new names, so apply function to all hr, pval and symbol matrices for OS and DFS
 mat_hr_os      <- fix_names(mat_hr_os)
 mat_pval_os    <- fix_names(mat_pval_os)
 symbol_mat_os  <- fix_names(symbol_mat_os)
@@ -255,14 +301,20 @@ symbol_mat_dfs <- fix_names(symbol_mat_dfs)
 
 #### Fix cancer and gene orders by classes
 
+Create a custom gene order for the heatmap, so genes in the same family class can be grouped together
+
+These family classes will be later explored.
+
 ```{r}
-# by class
+# custom cancer order
 cancer_order <- c(
   "PRAD","TGCT","THCA","LIHC","COAD","OV","LUSC","GBM",
   "BRCA","LUAD","SARC","ESCA","SKCM","STAD","BLCA","HNSC",
   "PAAD","KIRP","UCEC","LGG","KIRC"
 )
 
+#apply order to all matrices
+#cancers are columns so after komma
 #OS
 mat_hr_os   <- mat_hr_os[, cancer_order]
 mat_pval_os <- mat_pval_os[, cancer_order]
@@ -272,14 +324,15 @@ mat_hr_dfs   <- mat_hr_dfs[, cancer_order]
 mat_pval_dfs <- mat_pval_dfs[, cancer_order]
 symbol_mat_dfs  <- symbol_mat_dfs[, cancer_order]
 
-
-#Fix gene order (rows)
+#Fix gene order (rows) by HDAC/SIRT family class structure
 gene_order <- c(
   "HDAC10","HDAC6","HDAC1","HDAC8","HDAC3","HDAC2",
   "SIRT7","SIRT3","SIRT6","SIRT1","SIRT2","SIRT5","SIRT4",
   "HDAC7","HDAC4","HDAC9","HDAC5","HDAC11"
 )
 
+#apply to all matrices
+#genes = rows, so before komma
 mat_hr_os   <- mat_hr_os[gene_order, ]
 mat_pval_os <- mat_pval_os[gene_order, ]
 symbol_mat_os  <- symbol_mat_os[gene_order, ]
@@ -296,12 +349,21 @@ colnames(mat_hr_os)
 
 #### Drop NA columns
 
+Some cancer types turned out to only contain NA values in their columns.
+
+In DFS these were GBM and SKCM. To make sure no columns without values were present in the heatmaps, we drop them here.
+
 ```{r}
+#count how many NA values are in each column
+#col kept if at least 1 entry is not NA
+#drop = FALSE prevents R from turning 1-col matrix into vector 
+
 drop_all_na_cols <- function(mat) {
-  keep <- colSums(is.na(mat)) < nrow(mat)
-  mat[, keep, drop = FALSE]
+  keep <- colSums(is.na(mat)) < nrow(mat) 
+  mat[, keep, drop = FALSE] 
 }
 
+#apply to all matrices
 mat_hr_os     <- drop_all_na_cols(mat_hr_os)
 mat_pval_os   <- drop_all_na_cols(mat_pval_os)
 symbol_mat_os <- drop_all_na_cols(symbol_mat_os)
@@ -314,13 +376,15 @@ symbol_mat_dfs <- drop_all_na_cols(symbol_mat_dfs)
 
 ## Preparations: building heatmap
 
-#### Family information and colors
+#### Family information and coloring
 
 ```{r}
+#extract final gene and cancer order
+#determine structure heatmap
 gene_order <- rownames(mat_hr_os)
 cancer_order <- colnames(mat_hr_os)
 
-# genes into families
+# create table: assigns genes to families
 family_df <- tibble(
   gene = gene_order,
   family = case_when(
@@ -334,59 +398,89 @@ family_df <- tibble(
 
 # colourcode families
 family_colors <- c(
-  "class I"  = "#FF9999",
-  "class IIA"= "#FFCC66",
-  "class IIB"= "#99CC00",
-  "class III"= "#33CCCC",
-  "class IV" = "#3366FF"
+  "class I"  = "#F26684",
+  "class IIA"= "#E0E048",
+  "class IIB"= "#48B558",
+  "class III"= "#579FD9",
+  "class IV" = "#2013AD"
 )
 
 ```
 
-#### Matrix into tidy long format for ggplot
+#### Matrices into tidy long format for ggplot
+
+Ggplot can only work with long format data, so we have to convert the data into it.
 
 ```{r}
-mat_to_long <- function(mat_hr, mat_p, mat_sym, family_df,
-                        gene_order, cancer_order) {
+#convert matrices and family table into one tidy dataframe
+mat_to_long <- function(mat_hr, 
+                        mat_p, 
+                        mat_sym, 
+                        family_df,
+                        gene_order, 
+                        cancer_order) {
   
-  df_hr <- mat_hr |>
-    as.data.frame() |>
-    rownames_to_column("gene") |>
-    pivot_longer(-gene, names_to = "Cancer", values_to = "log10HR")
+  #convert hr matrix into long format
+  df_hr <- mat_hr |> 
+    as.data.frame() |> #conv into data frame
+    rownames_to_column("gene") |> #moves matrix row names unto column
+    pivot_longer(-gene, 
+                 names_to = "Cancer", 
+                 values_to = "log10HR") #converts from wide to long format
   
+  #same for pval matrix
   df_p <- mat_p |>
     as.data.frame() |>
     rownames_to_column("gene") |>
     pivot_longer(-gene, names_to = "Cancer", values_to = "pval")
   
+  #same for symbol matrix
   df_sym <- mat_sym |>
     as.data.frame() |>
     rownames_to_column("gene") |>
     pivot_longer(-gene, names_to = "Cancer", values_to = "symbol")
   
+  #merge the three dataframes + family annotation
   df <- df_hr |>
     left_join(df_p, by = c("gene","Cancer")) |>
     left_join(df_sym, by = c("gene","Cancer")) |>
     left_join(family_df, by = "gene")
   
+  #convert gene and cancer variables into ordered factors
+  #ensures ggplot plots rown and columns in before defined order
   df$gene   <- factor(df$gene, levels = gene_order)
   df$Cancer <- factor(df$Cancer, levels = cancer_order)
   
+  #return final tidy dataframe
   df
 }
 
 ```
 
-#### Tidy dfs for OS and DFS
+#### Tidy dataframes for OS and DFS
 
 ```{r}
-df_os  <- mat_to_long(mat_hr_os,  mat_pval_os,  symbol_mat_os,
-                      family_df, gene_order, cancer_order)
+
+#OS
+#use mat_to_long function os os and dfs matrices now
+df_os  <- mat_to_long(mat_hr_os,  
+                      mat_pval_os,  
+                      symbol_mat_os,
+                      family_df, 
+                      gene_order, 
+                      cancer_order)
+
+#clipping of values into range[-1, 1] 
+#extreme values cannot distort heatmap color scale
+#reset cancer factor levels to ensure custom order
 df_os <- df_os |>
   mutate(log10HR_clip = pmax(pmin(log10HR, 1), -1))|>
   mutate(Cancer = factor(Cancer, levels = cancer_order))
   
-df_os <- df_os |>  #for the legends
+#for the legends
+#translate p-vlaues into shape names
+#define as factor for consistent legend ordering
+df_os <- df_os |>  
   mutate(p_shape = case_when(
       pval < 0.001 ~ "triangle",
       pval < 0.01  ~ "square",
@@ -397,6 +491,8 @@ df_os <- df_os |>  #for the legends
   ) 
 
 #DFS
+#same methods
+#... removal of cancers with no DFS data, otherwise blank columns
 df_dfs <- mat_to_long(mat_hr_dfs, mat_pval_dfs, symbol_mat_dfs,
                       family_df, gene_order, cancer_order)
 
@@ -406,7 +502,9 @@ df_dfs <- df_dfs |>
   droplevels() |>
   mutate(Cancer = factor(Cancer, 
                          levels = cancer_order[cancer_order %in% Cancer]))
+
   
+#same as for os
 df_dfs <- df_dfs |>  #for the legends
   mutate(p_shape = case_when(
       pval < 0.001 ~ "triangle",
@@ -418,31 +516,47 @@ df_dfs <- df_dfs |>  #for the legends
   ) 
 ```
 
-## Building ggplot heatmap
+## Building the plot: family bar, heatmap, and legends
 
-Geom_tile(): colored HR blocks
+There are to be made multiple seperate elements for the final plot.
 
-Geom_text(): significance symbols
+1.  The heatmap, with colored tiles for the hazard ratios (HR), and symbols that show the P-value for every tile
+2.  On the left, a colored bar that show the family classes that the genes are in
+3.  On the right 3 legends:
+    -   One that shows the gradient of the hazard ratios, relating to the coloring of the tiles
 
-Facet_grid(): family grouping
+    -   One that shows the different family classes, relating to the coloring of the bar
+
+    -   One that shows the meaning of the symbols, corresponding to the symbols on the heatmap tiles.
 
 #### Family bar and legend
 
 Bar
 
 ```{r}
-#first the bar
-make_family_bar <- function(df, gene_order, family_colors) {
+#first create the bar
 
+#function using long format df, correct gene order and family color mapping
+make_family_bar <- function(df, 
+                            gene_order,
+                            family_colors) {
+
+  #keep unique gene-family pairs
+  #table with row for gene and assigned family
   df_unique <- df |> 
     distinct(gene, family) |> 
-    mutate(gene = factor(gene, levels = gene_order))
+    mutate(gene = factor(gene, 
+                         levels = gene_order)) #correct row order
 
-  ggplot(df_unique, aes(x = 1, y = gene, fill = family)) +
-    geom_tile() +
-    scale_fill_manual(values = family_colors, name = "HDAC family") +
-    scale_y_discrete(limits = rev(gene_order)) +
-    theme_void() +
+  #build the bar
+  ggplot(df_unique, aes(x = 1, #thin column
+                        y = gene, #tile per gene
+                        fill = family)) + #color from family class
+    geom_tile() + #solid rectangles
+    scale_fill_manual(values = family_colors, 
+                      name = "HDAC family") + #add family colors
+    scale_y_discrete(limits = rev(gene_order)) + #reverse y-axis order to match heatmap
+    theme_void() + #remove everything else
     theme(
       legend.position = "none",
       plot.margin = margin(0, 0, 0, 0)
@@ -450,8 +564,12 @@ make_family_bar <- function(df, gene_order, family_colors) {
 }
 
 #generate bar for OS and DFS
-family_bar_os <- make_family_bar(df_os, gene_order, family_colors)
-family_bar_dfs <- make_family_bar(df_dfs, gene_order, family_colors)
+family_bar_os <- make_family_bar(df_os, 
+                                 gene_order,
+                                 family_colors)
+family_bar_dfs <- make_family_bar(df_dfs,
+                                  gene_order,
+                                  family_colors)
 
 
 ```
@@ -460,22 +578,36 @@ Legend
 
 ```{r}
 #then the legend
-#data frame with families
+
+#data frame with one row per family in correct order
 family_legend_df <- data.frame(
   family = factor(
-    c("class I", "class IIA", "class IIB", "class III", "class IV"),
-    levels = c("class I", "class IIA", "class IIB", "class III", "class IV")
+    c("class I", 
+      "class IIA", 
+      "class IIB", 
+      "class III", 
+      "class IV"),
+    levels = c("class I", 
+               "class IIA",
+               "class IIB", 
+               "class III",
+               "class IV")
   )
 )
 
 #small ggplot
-family_legend_plot <- ggplot(family_legend_df, aes(x = family, y = 1, fill = family)) +
+family_legend_plot <- ggplot(family_legend_df, 
+                             aes(x = family, 
+                                 y = 1, 
+                                 fill = family)) +
   geom_tile() +
-  scale_fill_manual(values = family_colors, name = "HDAC family") +
-  theme_void() +
+  scale_fill_manual(values = family_colors, #same colors as sidebar
+                    name = "HDAC family") +
+  theme_void() + #removes unnecessary visuals
   theme(
     legend.position = "right",
-    legend.title = element_text(size = 10, face = "bold"),
+    legend.title = element_text(size = 10, 
+                                face = "bold"),
     legend.text  = element_text(size = 9)
   ) +
   guides(
@@ -488,15 +620,17 @@ family_legend_plot <- ggplot(family_legend_df, aes(x = family, y = 1, fill = fam
   )
 
 #extract it
-family_legend <- get_legend(family_legend_plot)
-family_legend_wrap <- wrap_elements(full = family_legend)
-
+#wrap_elements() for placement in patchwork layout
+family_legend <- cowplot::get_legend(family_legend_plot)
+family_legend_wrap <- patchwork::wrap_elements(full = family_legend)
 
 ```
 
 #### P-value legend
 
 ```{r}
+#create dataframe containing p-value shape categories
+# 3 rows for each symbol & defines factor with controlled order
 pval_leg_df <- data.frame(
   p_shape = factor(
     c("circle", "square", "triangle"),
@@ -504,14 +638,23 @@ pval_leg_df <- data.frame(
   )
 )
 
-pval_leg_plot <- ggplot(pval_leg_df, aes(x = 1, y = p_shape, shape = p_shape)) +
-  geom_point(size = 3, color = "black") +
-  scale_shape_manual(
-    values = c(circle = 16, square = 15, triangle = 17),
-    labels = c("<0.05", "<0.01", "<0.001"),
-    name   = "p-value"
+#ggplot: maps shape to pval class
+pval_leg_plot <- ggplot(pval_leg_df, 
+                        aes(x = 1, 
+                            y = p_shape, 
+                            shape = p_shape)) +
+  geom_point(size = 3, #draws shapes
+             color = "black") +
+  scale_shape_manual( #map shapes to ggplot2 shape code
+    values = c(circle = 16, 
+               square = 15, 
+               triangle = 17),
+    labels = c("<0.05", 
+               "<0.01", 
+               "<0.001"),
+    name   = "P-value"
   ) +
-  guides(
+  guides( #customize legend
     shape = guide_legend(
       title.position = "top",
       label.position = "bottom",
@@ -519,9 +662,10 @@ pval_leg_plot <- ggplot(pval_leg_df, aes(x = 1, y = p_shape, shape = p_shape)) +
       override.aes = list(size = 4)
     )
   ) +
-  theme_void() +
+  theme_void() + #remove axis and grid
   theme(legend.position = "right")
 
+#extract legend using cowplot
 pval_legend <- cowplot::get_legend(pval_leg_plot)
 pval_legend_wrap <- patchwork::wrap_elements(full = pval_legend)
 
@@ -530,26 +674,31 @@ pval_legend_wrap <- patchwork::wrap_elements(full = pval_legend)
 #### HR legend
 
 ```{r}
+#create data frame that spans hr range
 hr_leg_df <- data.frame(
   x = 1:3,
   y = 1,
   val = seq(-1, 1, length.out = 3)
 )
 
-hr_leg_plot <- ggplot(hr_leg_df, aes(x, y, fill = val)) +
+#ggplot bar with gradient fill
+hr_leg_plot <- ggplot(hr_leg_df, 
+                      aes(x, 
+                          y,
+                          fill = val)) +
   geom_tile() +
-  scale_fill_gradient2(
-    low = "green",
-    mid = "white",
-    high = "red",
+  scale_fill_gradient2( #define colour scale
+    low = "#00A859", 
+    mid = "white", 
+    high = "red", #risk
     midpoint = 0,
-    name = "log10(HR)"
+    name = "Hazard ratio: log10(HR)"
   ) +
   guides(
     fill = guide_colorbar(
-      direction = "horizontal",
-      title.position = "top",   # ⬅ TITLE ABOVE
-      title.hjust = 0.5,        # ⬅ CENTER TITLE
+      direction = "horizontal", #horizontal bar
+      title.position = "top",   # title above
+      title.hjust = 0.5,        # center title
       barwidth = unit(3, "cm"),
       barheight = unit(0.3, "cm")
     )
@@ -557,6 +706,7 @@ hr_leg_plot <- ggplot(hr_leg_df, aes(x, y, fill = val)) +
   theme_void() +
   theme(legend.position = "right")
 
+#extract legend
 hr_legend <- cowplot::get_legend(hr_leg_plot)
 hr_legend_wrap <- patchwork::wrap_elements(full = hr_legend)
 
@@ -564,16 +714,22 @@ hr_legend_wrap <- patchwork::wrap_elements(full = hr_legend)
 
 #### Ggplot heatmap
 
+Elements and function:
+
+-   Geom_tile(): colored HR blocks
+
+-   Geom_point(): significance symbols
+
 ```{r}
+#create function for making the heatmap to later apply on os and dfs dataframes
 make_hr_heatmap <- function(df, title_text) {
-  ggplot(df, aes(Cancer, gene)) +
-    geom_tile(aes(fill = log10HR_clip), 
-              color = "white",
+  ggplot(df, 
+         aes(Cancer,  #x-axis cacncer types
+             gene)) + #y-axis genes
+    geom_tile(aes(fill = log10HR_clip), #draw tiles of heatmap according to hr values
+              color = "white", #thin borders
               width = 0.8,
               linewidth = 0.25) +
-    #geom_text(aes(label = symbol), #not necessary anymore
-    #          size = 2.7, 
-    #          na.rm = TRUE) +
     geom_point(aes(shape = factor(p_shape)), #for shapes onto the plot
                size = 2.0,
                color = "black",
@@ -581,38 +737,23 @@ make_hr_heatmap <- function(df, title_text) {
                na.rm = TRUE
     ) +
 
-    scale_fill_gradient2(        #colour gradient onto plot
-      low = "green",
+    #colour gradient onto plot
+    scale_fill_gradient2(     
+      low = "#00A859",
       mid = "white",
       high = "red",
-      midpoint = 0,
-      name = "log10(HR)"
+      midpoint = 0
     ) +
     
-    scale_shape_manual(          #visual of symbols as legend
-      name = "p-value",
+    #define point shapes
+    scale_shape_manual(       
       values = c("circle" = 16, 
                  "square" = 15, 
-                 "triangle" = 17),
-      labels = c("circle"="<0.05", 
-                 "square"="<0.01", 
-                 "triangle"="<0.001"),
-      guide = guide_legend(
-        title.position = "top",
-        label.position = "bottom",
-        label.hjust = 0.5,
-        nrow = 1,
-        keywidth = unit(0.8, "cm"),
-        keyheight = unit(0.4, "cm"),
-        override.aes = list(size = 3)),
-      drop = TRUE,
-      na.translate = FALSE
+                 "triangle" = 17)
     ) +
     
-    #facet_grid(family ~ ., 
-    #           scales = "free_y", 
-    #           space = "free_y") +
-    scale_x_discrete(position = "bottom", 
+     #axis formatting
+    scale_x_discrete(position = "bottom",
                      drop = FALSE) +
     scale_y_discrete(
       limits = rev(levels(df$gene)),
@@ -624,64 +765,43 @@ make_hr_heatmap <- function(df, title_text) {
     theme(
       axis.title = element_blank(),
       panel.grid = element_blank(),
-      axis.text.x = element_text(angle = 90, hjust = 0, vjust = 1),
+      axis.text.x = element_text(angle = 90, 
+                                 hjust = 0, 
+                                 vjust = 1),
       axis.text.y = element_text(size = 9),
       strip.text.y = element_blank(),     # removes "class I" texts
-      plot.title = element_text(face = "bold", hjust = 0),
-      legend.direction = "horizontal",
+      plot.title = element_text(face = "bold",
+                                hjust = 0),
       legend.position = "none",
       plot.margin = margin(8, 8, 8, 8)
-    ) +
-    
-    guides(
-      fill = guide_colorbar(
-        title.position = "top",
-        barwidth = unit(3, "cm"),
-        barheight = unit(0.25, "cm")
-      )
-    )
+    ) 
 }
 
 ```
 
-#### Panels A for OS and B for DFS
+#### Heatmaps for OS and DFS
 
 ```{r}
+#plot heatmaps with make_heatmap function on tidy data for os and dfs
+# name the heatmaps
+ 
 p_os  <- make_hr_heatmap(df_os,  "Overall survival (hazard ratio) in TCGA tumors")
+
 p_dfs <- make_hr_heatmap(df_dfs, "Disease Free Survival (hazard ratio) in TCGA tumors")
+
+#see plots
 p_os
 p_dfs
 
 ```
 
-#### test
+#### Final plots of OS and DFS: Bar, heatmap and legends
 
 ```{r}
-plot_os_test <- p_os + hr_legend_wrap +
-  plot_layout(widths = c(2, 1))
-plot_os_test
-
-```
-
-#### Heatmap + family bar
-
-```{r}
-plot_os <- family_bar_os + p_os +
-  plot_layout(widths = c(0.1, 1))
-
-plot_dfs <- family_bar_dfs + p_dfs + 
-  plot_layout(widths = c(0.1, 1))
-
-plot_os
-plot_dfs
-
-```
-
-#### Bar + heatmap + legends
-
-```{r}
+#create spacer for in between elements
 spacer <- patchwork::plot_spacer()
 
+# merge the three legends into one element, on top of each other
 right_legends <- (
   family_legend_wrap / 
   spacer / 
@@ -691,41 +811,51 @@ right_legends <- (
   ) +
   plot_layout(heights = c(0.40, 0.01, 0.2, 0.01, 0.2))
 
+#create final seperate os and dfs plots
+#bar+heatmap+merged legends
 final_plot_os <- (
   family_bar_os | p_os | spacer | right_legends
   ) +
-  plot_layout(widths = c(0.07, 1.6, 0.06, 0.35))
+  plot_layout(widths = c(0.07, 1.6, 0.03, 0.50))
 
 final_plot_dfs <- (
   family_bar_dfs | p_dfs | spacer | right_legends
   ) +
-  plot_layout(widths = c(0.07, 1.6, 0.06, 0.35))
-              
+  plot_layout(widths = c(0.07, 1.6, 0.03, 0.50))
+  
+#see plots            
 final_plot_os
-final_plot_dfs 
+final_plot_dfs  
+
+ggsave("../results/07_plot_Overall_Survival.png", plot = final_plot_os, width = 8, height = 5, dpi = 300)
+ggsave("../results/07_plot_Disease_Free_Survival.png", plot = final_plot_dfs, width = 8, height = 5, dpi = 300)
 ```
 
-#### Side by side
+#### Side by side/below each other
 
 ```{r}
 
-
+#this was for next to eachother, but no space for nice view of heatmaps
 #final_plot <- (
 #  family_bar_os | p_os | spacer | family_bar_dfs | p_dfs | spacer | right_legends
 #  ) +
 #  plot_layout(widths = c(0.07, 1, 0.03, 0.07, 1, 0.03, 0.15))
 
+#merge the family bar and heatmap into one element
 os_block <- (family_bar_os | p_os ) + 
   plot_layout(widths = c(0.05, 1)) 
 dfs_block <- (family_bar_dfs | p_dfs) + 
   plot_layout(widths = c(0.05, 1)) 
 
+#put these blocks on top of eachother = stack
+#same space
 stack <- (
   os_block /
   dfs_block
 ) +
   plot_layout(heights = c(1, 1))
 
+#create final plot with the stack and the right legends next to eachother
 final_plot <- (
   stack | right_legends
 ) + 
@@ -733,7 +863,7 @@ final_plot <- (
 
 final_plot
  
-
+#save picture externally, for better visuals
 #ggsave(
 #  "HDAC_OS_DFS_heatmaps.png",
 #  final_plot,
