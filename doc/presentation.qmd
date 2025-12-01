@@ -23,7 +23,7 @@ bibliography: references.bib
 
 :::: {.columns}
 
-::: {.column width="55%"}
+::: {.column width="45%"}
 
 ### Epigenetic modifiers HDAC
 
@@ -33,19 +33,18 @@ bibliography: references.bib
 
 - **Immunogenicity:** HDAC activity can reduce antigen presentation and promote an immunosuppressive tumor microenvironment
 
-###### @Baretti2021, @Maciejewski2024
 
 :::
 
-::: {.column width="45%"}
+::: {.column width="55%"}
 
 ### HDAC inhibitors
 
 ![](https://pub.mdpi-res.com/ddc/ddc-04-00015/article_deploy/html/images/ddc-04-00015-g006.png?1743862479)
 
-- **Therapeutic angle:** inhibitors can decrease cancer stemness and increase tumor immunogenicity, improving responses to immunotherapy
+HDAC inhibitors can decrease cancer stemness and increase tumor immunogenicity, improving responses to immunotherapy [@Gupta2025].
 
-###### @Gupta2025
+
 
 :::
 
@@ -58,7 +57,7 @@ bibliography: references.bib
 Is HDAC gene family expression related to cancer stemness, clinical outcome, and survival?
 
 #### how
-By recreating the visualizations and analyses provided in the @Maciejewski2024 study suing the same data and our own R implementations.
+By recreating the visualizations and analyses provided in the @Maciejewski2024 study, uing the same data and our own R implementations.
 
 #### why
 To confirm the correctness of conclusions in the given paper as there is little-to-none literature confirming their findings so far.
@@ -133,10 +132,10 @@ flowchart TD
 
 ::: {.column width="40%"}
 
-- TCGA expression samples were deduplicated by averaging to get one expression value per gene per patient for each cancer type.
+- TCGA expression samples were deduplicated by averaging.
 - Spearman correlations with P-value correction for multiple testing (BH method)
-- Cox-based risk prediction model with high (Q3, 75th percentile) relative to low (Q1, 25th percentile) expression of specific HDAC family member
-- Applied data transformations were mirrored to the greatest extent based on the Methods section of reproduced paper.
+- Cox-based risk prediction model with high (Q3) relative to low (Q1) expression of each HDAC family members.
+- On all heatmaps, columns and rows are ordered as original hierarchical clusters.
 
 :::
 ::::
@@ -145,41 +144,56 @@ flowchart TD
 ### Data
 :::: {.columns}
 
-::: {.column width="33%"}
+::: {.column width="50%"}
 
 #### Stemness index (mRNAsi)
 
-manually fetched from supplementary materials
+downloaded from supplementary materials (Table S1) [@Malta2018]
 
-@Malta2018
-
-![](../results/04_key_plot_stemness.png)
+![](../results/04_key_plot_stemness.png){height=450px}
 
 :::
 
-::: {.column width="33%"}
-
-#### Cancer types selection
-
-solid tumors, as per original paper
-
-@Maciejewski2024
-
-![](../results/04_key_plot_tcga_cohort.png)
-
-:::
-
-::: {.column width="33%"}
+::: {.column width="50%"}
 
 #### Expression and clinical data
 
-fetched via *cBioPortal* R API
+solid tumors selection; data fetched via *cBioPortal* R API [@Cerami2012cBioPortal]
 
-@Cerami2012cBioPortal
+
+![](../results/04_key_plot_tcga_cohort.png){height=450px}
+
+:::
+::::
+
+## Results
+### Data distributions
+
+:::: {.columns}
+::: {.column width="33%"}
+
+#### HDAC expression across tumors
 
 ![](../results/04_key_plot_gene_expression.png)
 :::
+
+::: {.column width="33%"}
+
+#### Tumor grade across whole dataset
+
+![](../results/04_key_plot_grade_distribution.png)
+:::
+
+::: {.column width="33%"}
+
+#### Cancer stemness and grade
+
+![](../results/04_key_plot_violin.png)
+:::
+
 ::::
+
+Data distributions are as expected with main HDAC genes expression medians on similar levels. Grade and stage (not shown) statuses represent normal-like distributions.
 
 ## Results
 
@@ -188,7 +202,7 @@ fetched via *cBioPortal* R API
 
 ### HDAC expression vs grade
 
-![](../results/05_heatmap_for_grade.png){height=80%}
+![](../results/05_heatmap_for_grade.png){height=500px}
 
 :::
 
@@ -196,7 +210,7 @@ fetched via *cBioPortal* R API
 
 ### HDAC expression vs stage
 
-![](../results/05_heatmap_for_stage.png){height=80%}
+![](../results/05_heatmap_for_stage.png){height=500px}
 
 :::
 ::::
@@ -219,7 +233,7 @@ The expression of HDAC family members is sssociated with clinicopathological fea
 :::
 ::::
 
-HDAC gene expression does not show consistent behaviour within HDAC families. The prognostic relevance is highly tumor-dependent but still present.
+HDAC gene expression does not show consistent behaviour within HDAC classes. The prognostic relevance is highly tumor-dependent but still present.
 
 ## Results
 ### HDAC family expression vs cancer stemness
@@ -235,7 +249,7 @@ HDAC gene expression does not show consistent behaviour within HDAC families. Th
 
 ::: {.column width="50%"}
 
-![mrnasi](../results/06_Heatmap_Stemness.png)
+![](../results/06_Heatmap_Stemness.png)
 
 :::
 ::::
@@ -248,7 +262,7 @@ HDAC gene expression does not show consistent behaviour within HDAC families. Th
 
 ### Replication crisis
 
-- Although the so-called *replication crisis* in biomedical research is real (@Ioannidis2005), we managed to get almost the same results as in the @Maciejewski2024 study. This is considered a major success of our project as this paper does not provide any code so we had to assume how many minor data transformations were made. Moreover, we computed the survival from scratch, while the paper used existing results from one of the databases.
+Although the so-called *replication crisis* in biomedical research is real [@Ioannidis2005], we reproduced the key findings with only minor differences. This is a major success, given the lack of published code, the need to infer minor preprocessing steps, and the fact that we recomputed survival from raw data rather than using existing database results.
 
 
 ## Discussion
@@ -261,7 +275,7 @@ HDAC gene expression does not show consistent behaviour within HDAC families. Th
 
 - Confirming the relation of HDAC and immunological inflamation which was included in the reproduced paper but outside of the scope of this project.
 - Plotting function could have been shared across all figures to deliver the same aesthetics.
-- `pheatmap` or `complexheatmap` would create better-looking plots but we wanted to be 100% aligned with the course content.
+- `pheatmap` or `complexheatmap` would create better-looking plots with recomputed clusterings but we wanted to be 100% aligned with the course content.
 
 ## References
 
