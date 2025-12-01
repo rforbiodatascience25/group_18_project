@@ -585,3 +585,22 @@ final_plot_stage <- p_annot_stage + p_heatmap_stage +
 final_plot_stage
 FIGURE 
 ```
+
+## Save
+
+```{r}
+library(here)
+here::here()
+ggsave(
+  filename = here("results", "05_heatmap_for_grade.png"),
+  plot = final_plot,
+  width = 8,
+  height = 8
+)
+ggsave(
+  filename = here("results", "05_heatmap_for_stage.png"),
+  plot = final_plot_stage,
+  width = 8,
+  height = 8
+)
+```
