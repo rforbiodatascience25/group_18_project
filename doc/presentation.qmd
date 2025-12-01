@@ -57,7 +57,9 @@ HDAC inhibitors can decrease cancer stemness and increase tumor immunogenicity, 
 Is HDAC gene family expression related to cancer stemness, clinical outcome, and survival?
 
 #### how
-By recreating the visualizations and analyses provided in the @Maciejewski2024 study, uing the same data and our own R implementations.
+By recreating the visualizations and analyses provided in the following study (Figures 2-4), using the same data and our own R implementations. 
+
+> *The Epigenetic Modifiers HDAC2 and HDAC7 Inversely Associate with Cancer Stemness and Immunity in Solid Tumors*, IJMS, [@Maciejewski2024]
 
 #### why
 To confirm the correctness of conclusions in the given paper as there is little-to-none literature confirming their findings so far.
@@ -134,7 +136,7 @@ flowchart TD
 
 - TCGA expression samples were deduplicated by averaging.
 - Spearman correlations with P-value correction for multiple testing (BH method)
-- Cox-based risk prediction model with high (Q3) relative to low (Q1) expression of each HDAC family members.
+- Cox-based risk prediction model with high-low expression (median split) of each HDAC family members.
 - On all heatmaps, columns and rows are ordered as original hierarchical clusters.
 
 :::
@@ -198,7 +200,7 @@ Data distributions are as expected with main HDAC genes expression medians on si
 ## Results
 
 :::: {.columns}
-::: {.column width="50%"}
+::: {.column width="40%"}
 
 ### HDAC expression vs grade
 
@@ -206,11 +208,27 @@ Data distributions are as expected with main HDAC genes expression medians on si
 
 :::
 
-::: {.column width="50%"}
+::: {.column width="40%"}
 
 ### HDAC expression vs stage
 
 ![](../results/05_heatmap_for_stage.png){height=500px}
+
+:::
+
+::: {.column width="20%"}
+
+```{mermaid}
+flowchart TD
+  A[pivot_longer] --> B[group_by<br/>by 'cancer' and 'gene']
+  B --> C[Spearman]
+  C --> D[pivot_wider]
+  D --> E[Benjamini Hochberg correction]
+  E --> F[annotations and heatmap]
+  
+classDef whiteNode fill:#ffffff,stroke:#000000,color:#000000;
+class A,B,C,D,E,F whiteNode;
+```
 
 :::
 ::::
@@ -221,15 +239,30 @@ The expression of HDAC family members is sssociated with clinicopathological fea
 ### HDAC family expression is associted with survival
 
 :::: {.columns}
-::: {.column width="50%"}
+::: {.column width="40%"}
 
 ![](../results/07_plot_Disease_Free_Survival.png)
 
 :::
 
-::: {.column width="50%"}
+::: {.column width="40%"}
 
 ![](../results/07_plot_Overall_Survival.png)
+:::
+
+::: {.column width="20%"}
+
+```{mermaid}
+flowchart TD
+  A[standardize expression<br/>& convert status to numerical] --> B[split by cancer]
+  B --> D[Cox model<br/>HR & p-values]
+  D --> E[create matrices<br/>& reshape to long format]
+  E --> G[heatmap and annotation]
+  
+classDef whiteNode fill:#ffffff,stroke:#000000,color:#000000;
+class A,B,C,D,E,F,G,H whiteNode;
+```
+
 :::
 ::::
 
