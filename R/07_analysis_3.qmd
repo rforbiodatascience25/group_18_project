@@ -718,9 +718,7 @@ Elements and function:
 
 -   Geom_tile(): colored HR blocks
 
--   Geom_text(): significance symbols
-
-....
+-   Geom_point(): significance symbols
 
 ```{r}
 #create function for making the heatmap to later apply on os and dfs dataframes
