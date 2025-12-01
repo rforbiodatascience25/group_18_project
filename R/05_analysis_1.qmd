@@ -12,13 +12,6 @@ format:
 editor: visual
 ---
 
-## Load data
-
-```{r}
-my_data <- read_csv("../data/02_dat_clean.csv")
-#view(my_data)
-```
-
 ## Load libraries
 
 ```{r}
@@ -30,6 +23,13 @@ library(broom)
 library(grid)
 library(patchwork)
 
+```
+
+## Load data
+
+```{r}
+my_data <- read_csv("../data/02_dat_clean.csv", show_col_types = FALSE)
+#view(my_data)
 ```
 
 # FIGURE 1A
@@ -618,7 +618,6 @@ final_plot_stage <- p_annot_stage + p_heatmap_stage +
   plot_layout(widths = c(1, 20), guides = 'collect') 
 
 final_plot_stage
-FIGURE 
 ```
 
 ## Save

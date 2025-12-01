@@ -11,23 +11,30 @@ format:
     embed-resources: true
 editor: visual
 ---
-## Load data
 
-```{r}
-my_data <- read_csv("../data/02_dat_clean.csv")
-#view(my_data)
-```
 ## Load Libraries
+
 ```{r}
 library(tidyverse)
 library(broom)
 library(patchwork)
 ```
+
+## Load data
+
+```{r}
+my_data <- read_csv("../data/02_dat_clean.csv", show_col_types = FALSE)
+#view(my_data)
+```
+
 ## 1. Filtering only the samples with mRNAsi
+
 ```{r}
 data_for_stemness <- my_data %>% drop_na(mRNAsi)
 ```
-## 2. Standardization of tumor names 
+
+## 2. Standardization of tumor names
+
 ```{r}
 data_for_stemness$Cancer <- dplyr::recode(data_for_stemness$Cancer,
   "blca_tcga_pan_can_atlas_2018"    = "BLCA",
@@ -56,7 +63,9 @@ data_for_stemness$Cancer <- dplyr::recode(data_for_stemness$Cancer,
 
 cancers_use_stemness <- unique(data_for_stemness$Cancer)
 ```
-##  3. Selection of genes for analysis
+
+## 3. Selection of genes for analysis
+
 ```{r}
 genes_to_test_stemness <- c(
   "HDAC4", "HDAC5", "HDAC9", "HDAC7", # class IIA
@@ -66,8 +75,11 @@ genes_to_test_stemness <- c(
   "HDAC2", "HDAC3", "HDAC8", "HDAC1"  # class I
 )
 ```
-##  4. Computation of Spearman correlations between gene expression and mRNAsi.
-  Steps: reshape data, group by Cancer and gene, run cor.test, extract rho (correlation) and p-value.
+
+## 4. Computation of Spearman correlations between gene expression and mRNAsi.
+
+Steps: reshape data, group by Cancer and gene, run cor.test, extract rho (correlation) and p-value.
+
 ```{r}
 s_correlation_stemness <- data_for_stemness %>%
   pivot_longer(cols = any_of(genes_to_test_stemness),
@@ -79,8 +91,10 @@ s_correlation_stemness <- data_for_stemness %>%
   select(Cancer, gene, rho = estimate, p.value)
 ```
 
-##  5. Adjustment p-values using Benjamini–Hochberg (BH) correction to control false positives. 
-  Create a "label" column with symbols showing significance levels.
+## 5. Adjustment p-values using Benjamini–Hochberg (BH) correction to control false positives.
+
+Create a "label" column with symbols showing significance levels.
+
 ```{r}
 s_correlation_stemness <- s_correlation_stemness %>%
   mutate(p.adj = p.adjust(p.value, method = "BH"),
@@ -91,9 +105,10 @@ s_correlation_stemness <- s_correlation_stemness %>%
            TRUE ~ ""
          ))
 ```
-## 6. Definition of gene classes (I, IIA, IIB, III, IV) and assignment of each geneto its corresponding family. 
-  Creation a data frame (annot_df) linking genes to HDAC/SIRT classes for annotation in the heatmap.
 
+## 6. Definition of gene classes (I, IIA, IIB, III, IV) and assignment of each geneto its corresponding family.
+
+Creation a data frame (annot_df) linking genes to HDAC/SIRT classes for annotation in the heatmap.
 
 ```{r}
 gene_classes <- c(
@@ -111,10 +126,11 @@ annot_df <- data.frame(
 ```
 
 ## 7. Creation of the heatmap of Spearman correlations (rho) between gene expression and mRNAsi.
- - x-axis: Cancer types
- - y-axis: Genes (ordered, reversed for display)
- - fill color: correlation coefficient (blue = negative, red = positive)
- - overlay symbols (■, ▲, •) showing significance levels
+
+-   x-axis: Cancer types
+-   y-axis: Genes (ordered, reversed for display)
+-   fill color: correlation coefficient (blue = negative, red = positive)
+-   overlay symbols (■, ▲, •) showing significance levels
 
 ```{r}
 p_heatmap <- ggplot(s_correlation_stemness,
@@ -141,7 +157,8 @@ p_heatmap <- ggplot(s_correlation_stemness,
 ```
 
 ## 8. Creation of the annotation panel showing gene classes (HDAC families).
-  Each gene is displayed as a tile, colored by its family (I, IIA, IIB, III, IV).
+
+Each gene is displayed as a tile, colored by its family (I, IIA, IIB, III, IV).
 
 ```{r}
 p_annot <- ggplot(annot_df, aes(
@@ -161,8 +178,10 @@ p_annot <- ggplot(annot_df, aes(
   theme_void() +
   theme(plot.margin = margin(t = 5.5, r = 0, b = 5.5, l = 5.5))
 ```
+
 ## 9. Combine annotation panel and heatmap into one figure.
-   Show the plot and save it as PNG.
+
+Show the plot and save it as PNG.
 
 ```{r}
 final_plot <- p_annot + p_heatmap + plot_layout(widths = c(1, 20), guides = "collect")
@@ -170,4 +189,3 @@ final_plot
 ggsave("../results/heatmap_stemness.png", plot = final_plot, width = 8, height = 6, dpi = 300)
 
 ```
-

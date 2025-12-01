@@ -17,6 +17,8 @@ editor: visual
 ## Load data from previous step
 
 ```{r}
+library(tidyverse)
+
 dat <- read.csv("../data/03_dat_aug.csv")
 ```
 

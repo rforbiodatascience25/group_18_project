@@ -35,7 +35,6 @@ We will aim to get exactly the same data as analyzed in [this](https://pubmed.nc
 ```{r}
 #| include: false
 
-BiocManager::install("cBioPortalData")
 library(cBioPortalData)
 library(tidyverse)
 ```
@@ -105,6 +104,8 @@ study_tbl <- tibble(
 ```{r}
 #| warning: false
 #| include: false
+
+dir.create("../_raw")
 
 study_tbl %>%
   mutate(

@@ -11,3 +11,31 @@ format:
     embed-resources: true
 editor: visual
 ---
+
+# 01 Load Data
+
+{{< include 01_load.qmd >}}
+
+# 02 Clean Data
+
+{{< include 02_clean.qmd >}}
+
+# 03 Augment Data
+
+{{< include 03_augment.qmd >}}
+
+# 04 Describe Data
+
+{{< include 04_describe.qmd >}}
+
+# 05 Analysis Part 1
+
+{{< include 05_analysis_1.qmd >}}
+
+# 06 Analysis Part 2
+
+{{< include 06_analysis_2.qmd >}}
+
+# 07 Analysis Part 3
+
+{{< include 07_analysis_3.qmd >}}

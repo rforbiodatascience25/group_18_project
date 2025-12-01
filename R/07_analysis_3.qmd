@@ -12,13 +12,6 @@ format:
 editor: visual
 ---
 
-## Load data
-
-```{r}
-#Get data from our augment file
-dat_aug <- read.csv("../data/03_dat_aug.csv")
-```
-
 ## Load libraries
 
 ```{r}
@@ -26,6 +19,14 @@ library(tidyverse)
 library(ggplot2)
 library(patchwork)
 library(cowplot)
+library(survival)
+```
+
+## Load data
+
+```{r}
+#Get data from our augment file
+dat_aug <- read.csv("../data/03_dat_aug.csv")
 ```
 
 ## Data changes
