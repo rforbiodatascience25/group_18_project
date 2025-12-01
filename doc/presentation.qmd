@@ -1,11 +1,11 @@
 ---
 title: "Group 18: R for Bio Data Science final project"
 author:
-  - "Kacper Maciejewski (s243548)"
-  - "Sofia Russo (252054)"
-  - "Aleksandra Wozniak (253713)"
-  - "Gabriel Loayza (252608)"
-  - "Dagmar Geevers (252256)"
+  - "Kacper<br>Maciejewski<br>(s243548)"
+  - "Sofia<br>Russo<br>(s252054)"
+  - "Aleksandra<br>Wozniak<br>(s253713)"
+  - "Gabriel<br>Loayza<br>(s252608)"
+  - "Dagmar<br>Geevers<br>(s252256)"
 format:
   revealjs:
     embed-resources: true
@@ -16,72 +16,254 @@ format:
     mainfont: avenir
     logo: images/r4bds_logo_small.png
     footer: "Group 18: R for Bio Data Science final project"
+bibliography: references.bib
 ---
 
 ## Introduction
+
+:::: {.columns}
+
+::: {.column width="55%"}
+
 ### Epigenetic modifiers HDAC
 
-- Turn off alarm
+- **HDAC gene family:** epigenetic modifiers that remove histone acetyl groups and repress gene expression
 
-img from the original articl
+- **Cancer stemness:** HDACs are often overexpressed in tumors and help maintain cancer stem cells and therapy resistance
+
+- **Immunogenicity:** HDAC activity can reduce antigen presentation and promote an immunosuppressive tumor microenvironment
+
+###### @Baretti2021, @Maciejewski2024
+
+:::
+
+::: {.column width="45%"}
+
+### HDAC inhibitors
+
+![](https://pub.mdpi-res.com/ddc/ddc-04-00015/article_deploy/html/images/ddc-04-00015-g006.png?1743862479)
+
+- **Therapeutic angle:** inhibitors can decrease cancer stemness and increase tumor immunogenicity, improving responses to immunotherapy
+
+###### @Gupta2025
+
+:::
+
+::::
 
 ## Introduction
 ### Project aim
 
-*PROJECT AIM:* ddd
+#### what
+Is HDAC gene family expression related to cancer stemness, clinical outcome, and survival?
 
-**This project recrates the visualizations derived at ... study.**
+#### how
+By recreating the visualizations and analyses provided in the @Maciejewski2024 study suing the same data and our own R implementations.
+
+#### why
+To confirm the correctness of conclusions in the given paper as there is little-to-none literature confirming their findings so far.
+
+## Methods
+### Analysis - project overview
+
+:::: {.columns}
+
+::: {.column width="60%"}
+
+```{mermaid}
+flowchart TD
+  A[cBioPortal] --> B[TCGA clinical data]
+  A --> C[TCGA expression data]
+
+  %% Malta et al. before mRNAsi
+  X[Malta et al. study] --> D[mRNAsi stemness index]
+
+  %% Data cleanup after B, C, and D
+  B --> Bclean[Data cleanup]
+  C --> Cclean[Data cleanup]
+  D --> Dclean[Data cleanup]
+
+  %% Data merge (data join)
+  Bclean --> DM[Data merge]
+  Cclean --> DM
+  Dclean --> DM
+
+  %% After data merge: data augmentation
+  DM --> E[Data augmentation]
+
+  E --> F[Descriptive summary]
+
+  E --> G[Correlation analysis]
+  G --> H[mRNAsi]
+  G --> I[stage/grade]
+
+  E --> J[Survival modeling]
+  J --> K[Overall Survival]
+  J --> L[Disease Free Survival]
+  
+  F --> M[Plots & tables]
+  H --> M
+  I --> M
+  K --> M
+  L --> M
+
+  %% Styling: white background, black text
+  style A fill:#ffffff,stroke:#000000,color:#000000
+  style B fill:#ffffff,stroke:#000000,color:#000000
+  style C fill:#ffffff,stroke:#000000,color:#000000
+  style X fill:#ffffff,stroke:#000000,color:#000000
+  style D fill:#ffffff,stroke:#000000,color:#000000
+  style Bclean fill:#ffffff,stroke:#000000,color:#000000
+  style Cclean fill:#ffffff,stroke:#000000,color:#000000
+  style Dclean fill:#ffffff,stroke:#000000,color:#000000
+  style DM fill:#ffffff,stroke:#000000,color:#000000
+  style E fill:#ffffff,stroke:#000000,color:#000000
+  style F fill:#ffffff,stroke:#000000,color:#000000
+  style G fill:#ffffff,stroke:#000000,color:#000000
+  style H fill:#ffffff,stroke:#000000,color:#000000
+  style I fill:#ffffff,stroke:#000000,color:#000000
+  style J fill:#ffffff,stroke:#000000,color:#000000
+  style K fill:#ffffff,stroke:#000000,color:#000000
+  style L fill:#ffffff,stroke:#000000,color:#000000
+  style M fill:#ffffff,stroke:#000000,color:#000000
+
+```
+
+:::
+
+::: {.column width="40%"}
+
+- TCGA expression samples were deduplicated by averaging to get one expression value per gene per patient for each cancer type.
+- Spearman correlations with P-value correction for multiple testing (BH method)
+- Cox-based risk prediction model with high (Q3, 75th percentile) relative to low (Q1, 25th percentile) expression of specific HDAC family member
+- Applied data transformations were mirrored to the greatest extent based on the Methods section of reproduced paper.
+
+:::
+::::
 
 ## Methods
 ### Data
+:::: {.columns}
 
-- Get in bed
+::: {.column width="33%"}
 
-img with cohort size overview
+#### Stemness index (mRNAsi)
 
-## Methods
-### Analysis
+manually fetched from supplementary materials
 
-- test
+@Malta2018
+
+![](../results/04_key_plot_stemness.png)
+
+:::
+
+::: {.column width="33%"}
+
+#### Cancer types selection
+
+solid tumors, as per original paper
+
+@Maciejewski2024
+
+![](../results/04_key_plot_tcga_cohort.png)
+
+:::
+
+::: {.column width="33%"}
+
+#### Expression and clinical data
+
+fetched via *cBioPortal* R API
+
+@Cerami2012cBioPortal
+
+![](../results/04_key_plot_gene_expression.png)
+:::
+::::
 
 ## Results
-### HDAC family correlates with tumor grade and stage
 
-img stage
-img grade
+:::: {.columns}
+::: {.column width="50%"}
+
+### HDAC expression vs grade
+
+![](../results/05_heatmap_for_grade.png){height=80%}
+
+:::
+
+::: {.column width="50%"}
+
+### HDAC expression vs stage
+
+![](../results/05_heatmap_for_stage.png){height=80%}
+
+:::
+::::
+
+The expression of HDAC family members is sssociated with clinicopathological features of TCGA solid tumors in a cancer-dependent and gene-specific manner.
 
 ## Results
 ### HDAC family expression is associted with survival
 
 :::: {.columns}
-::: {.column width="45%"}
+::: {.column width="50%"}
 
-- Placeholder point 1 about survival
-- Placeholder point 2 about HDAC expression
-- Placeholder point 3 about clinical relevance
+![](../results/07_plot_Disease_Free_Survival.png)
 
 :::
 
-::: {.column width="55%"}
+::: {.column width="50%"}
 
-![Placeholder survival figure](images/hdac_survival_placeholder.png)
-- Placeholder point 2 about HDAC expression
-- Placeholder point 3 about clinical relevance
+![](../results/07_plot_Overall_Survival.png)
+:::
+::::
+
+HDAC gene expression does not show consistent behaviour within HDAC families. The prognostic relevance is highly tumor-dependent but still present.
+
+## Results
+### HDAC family expression vs cancer stemness
+
+
+:::: {.columns}
+::: {.column width="50%"}
+
+- Class I HDAC family members correlate positively, while class IIA HDAC genes correlate negatively with cancer stemness across TCGA solid tumors.
+- Specifically, HDAC2 (member of class I) and HDAC7 (member of class IIA) genes show the highest correlations across studied solid tumors, exhibiting statistically significant opposite trends
+
+:::
+
+::: {.column width="50%"}
+
+![mrnasi](../results/06_Heatmap_Stemness.png)
 
 :::
 ::::
 
-## Results
-### HDAC family expression relates to cancer stemness
-
-img mrnasi
-
 ## Discussion
 ### Inverse association with cancer stemness and immunogenicity
 
-- test
+- This project confirmed a strong, tumor-type–independent association between cancer stemness and elevated class I HDAC expression, especially HDAC2, while class IIA HDACs showed the opposite trend, with HDAC7 most strongly negatively associated.
+- Since cancer stemness and immune infiltration are inversely related [@Malta2018], patients with stem-like, poorly infiltrated tumors and high HDAC2 expression may benefit from combining HDAC2-selective inhibitors with immunotherapy.
+
+### Replication crisis
+
+- Although the so-called *replication crisis* in biomedical research is real (@Ioannidis2005), we managed to get almost the same results as in the @Maciejewski2024 study. This is considered a major success of our project as this paper does not provide any code so we had to assume how many minor data transformations were made. Moreover, we computed the survival from scratch, while the paper used existing results from one of the databases.
+
 
 ## Discussion
-### Technical project overview
+### Technical take aways
 
-packages etc????
+- **We successful managed to recreate expected figures and managed to derive exactly the same results and conclusions.**
+- In our future project we should use `try(..., silent=TRUE)` with higher caution as it made it hard for us to debug.
+
+### Further steps and improvements
+
+- Confirming the relation of HDAC and immunological inflamation which was included in the reproduced paper but outside of the scope of this project.
+- Plotting function could have been shared across all figures to deliver the same aesthetics.
+- `pheatmap` or `complexheatmap` would create better-looking plots but we wanted to be 100% aligned with the course content.
+
+## References
+
+::: references
+:::
