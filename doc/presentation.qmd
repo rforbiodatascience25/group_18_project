@@ -6,7 +6,16 @@ author:
   - "Aleksandra Wozniak (253713)"
   - "Gabriel Loayza (252608)"
   - "Dagmar Geevers (252256)"
-format: revealjs
+format:
+  revealjs:
+    embed-resources: true
+    theme: moon
+    slide-number: c/t
+    width: 1600
+    height: 900
+    mainfont: avenir
+    logo: images/r4bds_logo_small.png
+    footer: "Group 18: R for Bio Data Science final project"
 ---
 
 ## Introduction
@@ -44,8 +53,23 @@ img grade
 ## Results
 ### HDAC family expression is associted with survival
 
-img os
-img dfs
+:::: {.columns}
+::: {.column width="45%"}
+
+- Placeholder point 1 about survival
+- Placeholder point 2 about HDAC expression
+- Placeholder point 3 about clinical relevance
+
+:::
+
+::: {.column width="55%"}
+
+![Placeholder survival figure](images/hdac_survival_placeholder.png)
+- Placeholder point 2 about HDAC expression
+- Placeholder point 3 about clinical relevance
+
+:::
+::::
 
 ## Results
 ### HDAC family expression relates to cancer stemness
