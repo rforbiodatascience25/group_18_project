@@ -34,7 +34,7 @@ library(patchwork)
 
 # FIGURE 1A
 
-## 1.1 Cleaning and numbering the "Grade" 
+## 1.1 Cleaning and numbering the "Grade"
 
 Grade is a microscopic assessment of the appearance of cancer cells, indicating how different they are from the normal cells.
 
@@ -283,7 +283,7 @@ p_annot <- ggplot(annot_df, aes(
 
 ```
 
-## 1.8 Drawing a graph 
+## 1.8 Drawing a graph
 
 From heatmap we can see:
 
@@ -326,7 +326,7 @@ final_plot
 
 # FIGURE 1B
 
-## 2.1 Cleaning and numbering the "Stage" 
+## 2.1 Cleaning and numbering the "Stage"
 
 ```{r}
 print(unique(my_data$Stage))
@@ -555,7 +555,7 @@ p_annot_stage <- ggplot(annot_df_stage, aes(
 
 ```
 
-## 2.8 Drawing a graph 
+## 2.8 Drawing a graph
 
 ```{r}
 p_heatmap_stage <- ggplot(df_long_stage,
@@ -583,4 +583,23 @@ final_plot_stage <- p_annot_stage + p_heatmap_stage +
   plot_layout(widths = c(1, 20), guides = 'collect') 
 
 final_plot_stage
+```
+
+## Save
+
+```{r}
+library(here)
+here::here()
+ggsave(
+  filename = here("results", "05_heatmap_for_grade.png"),
+  plot = final_plot,
+  width = 8,
+  height = 8
+)
+ggsave(
+  filename = here("results", "05_heatmap_for_stage.png"),
+  plot = final_plot_stage,
+  width = 8,
+  height = 8
+)
 ```
